@@ -1,7 +1,7 @@
 # anki.nvim 🃏
 
-Flashcards without leaving the cave.  
-Tiny Neovim bridge for reviewing Anki decks in a clean floating window.
+flashcards without leaving the cave.  
+tiny Neovim bridge for reviewing anki decks in a clean floating window.
 
 ---
 
@@ -13,13 +13,13 @@ Tiny Neovim bridge for reviewing Anki decks in a clean floating window.
 
 | | |
 |---|---|
-| UI | centered floating review window |
-| Backend | AnkiConnect over localhost |
-| Command | `:AnkiReview` |
-| Decks | picker when no deck is passed |
-| Answers | `1` Again · `2` Hard · `3` Good · `4` Easy |
-| Default | `<CR>` answers Good |
-| Timer | per-card session clock |
+| ui | centered floating review window |
+| backend | AnkiConnect over localhost |
+| command | `:AnkiReview` |
+| decks | picker when no deck is passed |
+| answers | `1` Again · `2` Hard · `3` Good · `4` Easy |
+| default | `<CR>` answers Good |
+| timer | per-card session clock |
 
 ---
 
@@ -48,9 +48,9 @@ vim.pack.add({
 neovim 0.10+, curl, Anki, AnkiConnect
 ```
 
-Install AnkiConnect from AnkiWeb: `2055492159`.
+install AnkiConnect from AnkiWeb: `2055492159`.
 
-Anki must be open. AnkiConnect must listen on `http://127.0.0.1:8765`.
+anki must be open. AnkiConnect must listen on `http://127.0.0.1:8765`.
 
 ---
 
@@ -63,7 +63,7 @@ Anki must be open. AnkiConnect must listen on `http://127.0.0.1:8765`.
 opens a deck picker.
 
 ```vim
-:AnkiReview Japanese::Core
+:AnkiReview <anki deck name>
 ```
 
 starts that deck directly.
@@ -100,9 +100,13 @@ starts that deck directly.
 
 ## why
 
-Because context switching is where reviews go to die.  
-Run `:AnkiReview`, clear the queue, return to code.
+yes, anki still has to be open.  
+no, you do not have to look at it.
+
+anki handles the scheduler.  
+Neovim handles the cave.  
+you handle the queue.
 
 ---
 
-> study gremlin approved
+> terminal gremlin certified 
