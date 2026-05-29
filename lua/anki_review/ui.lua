@@ -68,11 +68,10 @@ local function normalize(lines)
 	return normalized
 end
 
-local function answer_hints(card, opts)
-	opts = opts or {}
+local function answer_hints(card)
 	local buttons = card and card.buttons or { 1, 2, 3, 4 }
 	local reviews = card and card.nextReviews or {}
-	local parts = { "<CR> Good" }
+	local parts = {}
 
 	for _, ease in ipairs(buttons) do
 		local label = answer_labels[ease] or ("Ease " .. ease)
@@ -80,13 +79,9 @@ local function answer_hints(card, opts)
 		if review and review ~= vim.NIL then
 			label = label .. " " .. text.strip_html(review)
 		end
-		if opts.aliases and opts.aliases[ease] then
-			label = label .. " (" .. opts.aliases[ease] .. ")"
-		end
 		table.insert(parts, tostring(ease) .. " " .. label)
 	end
 
-	table.insert(parts, "q Quit")
 	return table.concat(parts, "    ")
 end
 
@@ -94,24 +89,24 @@ local question_hints = "<Space> Reveal answer    q Quit"
 
 local function compact_hints(state)
 	if state.showing_answer then
-		return answer_hints(state.current_card, { aliases = { [1] = "S-BS/S-Del", [2] = "BS/Del", [4] = "S-CR" } })
-			.. "    ? Nav"
+		return answer_hints(state.current_card) .. "    ? Help    q"
 	end
 
-	return question_hints .. "    ? Nav"
+	return question_hints .. "    ? Help"
 end
 
 local function full_hints(state)
 	if state.showing_answer then
 		return {
-			answer_hints(state.current_card, { aliases = { [1] = "S-BS/S-Del", [2] = "BS/Del", [4] = "S-CR" } }),
-			"gq Question    ga Answer    gb Buttons    [[/]] or <Tab> Blocks    ? Hide nav",
+			answer_hints(state.current_card) .. "    q",
+			"Keys: Enter=Good    BS/Del=Hard    S-Enter=Easy    S-BS/Del=Again",
+			"Nav: gq question    ga answer    gb buttons    Tab blocks    ? hide",
 		}
 	end
 
 	return {
 		question_hints,
-		"gq Question    gb Keys    [[/]] or <Tab> Blocks    ? Hide nav",
+		"Nav: gq question    gb keys    Tab blocks    ? hide",
 	}
 end
 
