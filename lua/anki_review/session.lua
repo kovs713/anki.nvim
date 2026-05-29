@@ -13,7 +13,10 @@ local state = {
 	pending_focus = nil,
 	sections = {},
 	section_order = {},
+	progress = nil,
+	stats = nil,
 	started_at = nil,
+	session_started_at = nil,
 	timer = nil,
 	closed = false,
 	error = nil,
@@ -32,6 +35,23 @@ end
 
 local function render()
 	ui.render(state)
+end
+
+local function refresh_progress()
+	if not state.deck then
+		return
+	end
+
+	local stats = anki.deck_stats(state.deck)
+	if not stats then
+		return
+	end
+
+	state.progress = {
+		new = stats.new_count or 0,
+		learn = stats.learn_count or 0,
+		due = stats.review_count or 0,
+	}
 end
 
 local function start_timer()
@@ -124,7 +144,10 @@ function M.answer(ease)
 
 	state.showing_answer = false
 	state.focus_answer = false
+	state.stats.answered = state.stats.answered + 1
+	state.stats.ease[ease] = state.stats.ease[ease] + 1
 	state.started_at = os.time()
+	refresh_progress()
 	M.load_current_card()
 end
 
@@ -157,7 +180,13 @@ function M.start(deck)
 		pending_focus = nil,
 		sections = {},
 		section_order = {},
+		progress = nil,
+		stats = {
+			answered = 0,
+			ease = { [1] = 0, [2] = 0, [3] = 0, [4] = 0 },
+		},
 		started_at = nil,
+		session_started_at = os.time(),
 		timer = nil,
 		closed = false,
 		error = nil,
@@ -187,6 +216,7 @@ function M.start(deck)
 	end
 
 	state.started_at = os.time()
+	refresh_progress()
 	start_timer()
 	M.load_current_card()
 end

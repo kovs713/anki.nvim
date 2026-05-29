@@ -9,10 +9,26 @@ local function render(state)
 		return
 	end
 
-	local lines = { state.prompt, "" }
-	for i, item in ipairs(state.items) do
+	local visible_count = math.max(1, state.height - 3)
+	if state.index < state.offset then
+		state.offset = state.index
+	elseif state.index >= state.offset + visible_count then
+		state.offset = state.index - visible_count + 1
+	end
+
+	local max_offset = math.max(1, #state.items - visible_count + 1)
+	state.offset = clamp(state.offset, 1, max_offset)
+
+	local prompt = string.format("%s (%d/%d)", state.prompt, state.index, #state.items)
+	local lines = { prompt, "" }
+	for i = state.offset, math.min(#state.items, state.offset + visible_count - 1) do
+		local item = state.items[i]
 		local prefix = i == state.index and "> " or "  "
 		table.insert(lines, prefix .. item)
+	end
+
+	if state.offset + visible_count - 1 < #state.items then
+		table.insert(lines, "  ...")
 	end
 
 	vim.bo[state.buf].modifiable = true
@@ -44,6 +60,8 @@ function M.select(items, opts, callback)
 		items = items,
 		prompt = opts.prompt or "Select item",
 		index = 1,
+		offset = 1,
+		height = height,
 		buf = vim.api.nvim_create_buf(false, true),
 		win = nil,
 	}
@@ -65,6 +83,11 @@ function M.select(items, opts, callback)
 
 	local function move(delta)
 		state.index = clamp(state.index + delta, 1, #state.items)
+		render(state)
+	end
+
+	local function page(delta)
+		state.index = clamp(state.index + delta * math.max(1, state.height - 4), 1, #state.items)
 		render(state)
 	end
 
@@ -91,6 +114,20 @@ function M.select(items, opts, callback)
 	end, keymap_opts)
 	vim.keymap.set("n", "<Up>", function()
 		move(-1)
+	end, keymap_opts)
+	vim.keymap.set("n", "<C-d>", function()
+		page(1)
+	end, keymap_opts)
+	vim.keymap.set("n", "<C-u>", function()
+		page(-1)
+	end, keymap_opts)
+	vim.keymap.set("n", "G", function()
+		state.index = #state.items
+		render(state)
+	end, keymap_opts)
+	vim.keymap.set("n", "gg", function()
+		state.index = 1
+		render(state)
 	end, keymap_opts)
 	vim.keymap.set("n", "<CR>", choose, keymap_opts)
 	vim.keymap.set("n", "q", cancel, keymap_opts)

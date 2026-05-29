@@ -15,6 +15,30 @@ local function format_time(seconds)
 	return string.format("%02d:%02d", mins, secs)
 end
 
+local function progress_line(progress)
+	if not progress then
+		return nil
+	end
+
+	return string.format("Due: %d    Learn: %d    New: %d", progress.due or 0, progress.learn or 0, progress.new or 0)
+end
+
+local function stats_lines(state)
+	local stats = state.stats or { answered = 0, ease = {} }
+	local total = os.time() - (state.session_started_at or os.time())
+	return {
+		"Session",
+		string.format("Answered: %d    Time: %s", stats.answered or 0, format_time(total)),
+		string.format(
+			"Again: %d    Hard: %d    Good: %d    Easy: %d",
+			(stats.ease and stats.ease[1]) or 0,
+			(stats.ease and stats.ease[2]) or 0,
+			(stats.ease and stats.ease[3]) or 0,
+			(stats.ease and stats.ease[4]) or 0
+		),
+	}
+end
+
 local function normalize(lines)
 	local normalized = {}
 	for _, line in ipairs(lines) do
@@ -158,8 +182,17 @@ function M.render(state)
 			"",
 			'No more cards to review in "' .. (state.deck or "") .. '".',
 			"",
-			"Press q to close.",
 		}
+		local progress = progress_line(state.progress)
+		if progress then
+			table.insert(lines, progress)
+			table.insert(lines, "")
+		end
+		for _, line in ipairs(stats_lines(state)) do
+			table.insert(lines, line)
+		end
+		table.insert(lines, "")
+		table.insert(lines, "Press q to close.")
 	else
 		local elapsed = os.time() - (state.started_at or os.time())
 		local deck_label = "Deck: " .. (state.deck or "")
@@ -168,6 +201,10 @@ function M.render(state)
 		local question, answer = text.card_text(state.current_card)
 
 		table.insert(lines, deck_label .. string.rep(" ", padding) .. time_label)
+		local progress = progress_line(state.progress)
+		if progress then
+			table.insert(lines, progress)
+		end
 		table.insert(lines, "State: " .. (state.showing_answer and "Answer" or "Question"))
 		table.insert(lines, "")
 		mark_section("question")

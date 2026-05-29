@@ -2,6 +2,8 @@ local M = {}
 
 local endpoint = "http://127.0.0.1:8765"
 
+M.endpoint = endpoint
+
 function M.request(action, params)
 	local payload = vim.json.encode({
 		action = action,
@@ -53,6 +55,15 @@ function M.deck_names()
 	return M.request("deckNames")
 end
 
+function M.deck_stats(deck)
+	local result, err = M.request("getDeckStats", { decks = { deck } })
+	if err then
+		return nil, err
+	end
+
+	return result and result[deck] or nil, nil
+end
+
 function M.start_review(deck)
 	return M.request("guiDeckReview", { name = deck })
 end
@@ -67,6 +78,10 @@ end
 
 function M.answer_card(ease)
 	return M.request("guiAnswerCard", { ease = ease })
+end
+
+function M.version()
+	return M.request("version")
 end
 
 return M
