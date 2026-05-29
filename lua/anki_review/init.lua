@@ -2,6 +2,7 @@ local anki = require("anki_review.anki")
 local config = require("anki_review.config")
 local picker = require("anki_review.picker")
 local session = require("anki_review.session")
+local persisted = require("anki_review.state")
 
 local M = {}
 
@@ -30,8 +31,20 @@ end
 
 function M.start(deck)
 	if not deck or deck == "" then
+		if config.get().remember_last_deck then
+			local last_deck = persisted.last_deck()
+			if last_deck and last_deck ~= "" then
+				session.start(last_deck)
+				return
+			end
+		end
+
 		pick_deck()
 		return
+	end
+
+	if config.get().remember_last_deck then
+		persisted.set_last_deck(deck)
 	end
 
 	session.start(deck)
