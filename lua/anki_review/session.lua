@@ -15,6 +15,7 @@ local state = {
 	section_order = {},
 	progress = nil,
 	stats = nil,
+	show_help = false,
 	started_at = nil,
 	session_started_at = nil,
 	timer = nil,
@@ -165,6 +166,11 @@ function M.prev_section()
 	ui.prev_section(state)
 end
 
+function M.toggle_help()
+	state.show_help = not state.show_help
+	render()
+end
+
 function M.start(deck)
 	if state.win and vim.api.nvim_win_is_valid(state.win) then
 		M.close()
@@ -185,6 +191,7 @@ function M.start(deck)
 			answered = 0,
 			ease = { [1] = 0, [2] = 0, [3] = 0, [4] = 0 },
 		},
+		show_help = false,
 		started_at = nil,
 		session_started_at = os.time(),
 		timer = nil,
@@ -199,6 +206,7 @@ function M.start(deck)
 		focus_section = M.focus_section,
 		next_section = M.next_section,
 		prev_section = M.prev_section,
+		toggle_help = M.toggle_help,
 		close = M.close,
 		closed = function()
 			state.closed = true

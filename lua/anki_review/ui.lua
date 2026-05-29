@@ -9,6 +9,24 @@ local answer_labels = {
 	[4] = "Easy",
 }
 
+local function clamp(value, min, max)
+	return math.min(math.max(value, min), max)
+end
+
+local function window_size()
+	local columns = vim.o.columns
+	local lines = vim.o.lines - vim.o.cmdheight
+	local width = clamp(math.floor(columns * 0.72), math.min(60, columns - 4), math.min(110, columns - 4))
+	local height = clamp(math.floor(lines * 0.72), math.min(18, lines - 4), math.min(34, lines - 4))
+
+	return {
+		width = math.max(20, width),
+		height = math.max(8, height),
+		row = math.max(0, math.floor((lines - height) / 2)),
+		col = math.max(0, math.floor((columns - width) / 2)),
+	}
+end
+
 local function format_time(seconds)
 	local mins = math.floor(seconds / 60)
 	local secs = seconds % 60
@@ -50,7 +68,8 @@ local function normalize(lines)
 	return normalized
 end
 
-local function answer_hints(card)
+local function answer_hints(card, opts)
+	opts = opts or {}
 	local buttons = card and card.buttons or { 1, 2, 3, 4 }
 	local reviews = card and card.nextReviews or {}
 	local parts = { "<CR> Good" }
@@ -61,11 +80,39 @@ local function answer_hints(card)
 		if review and review ~= vim.NIL then
 			label = label .. " " .. text.strip_html(review)
 		end
+		if opts.aliases and opts.aliases[ease] then
+			label = label .. " (" .. opts.aliases[ease] .. ")"
+		end
 		table.insert(parts, tostring(ease) .. " " .. label)
 	end
 
 	table.insert(parts, "q Quit")
 	return table.concat(parts, "    ")
+end
+
+local question_hints = "<Space> Reveal answer    q Quit"
+
+local function compact_hints(state)
+	if state.showing_answer then
+		return answer_hints(state.current_card, { aliases = { [1] = "S-BS/S-Del", [2] = "BS/Del", [4] = "S-CR" } })
+			.. "    ? Nav"
+	end
+
+	return question_hints .. "    ? Nav"
+end
+
+local function full_hints(state)
+	if state.showing_answer then
+		return {
+			answer_hints(state.current_card, { aliases = { [1] = "S-BS/S-Del", [2] = "BS/Del", [4] = "S-CR" } }),
+			"gq Question    ga Answer    gb Buttons    [[/]] or <Tab> Blocks    ? Hide nav",
+		}
+	end
+
+	return {
+		question_hints,
+		"gq Question    gb Keys    [[/]] or <Tab> Blocks    ? Hide nav",
+	}
 end
 
 local function focus_line(state, line)
@@ -99,10 +146,7 @@ local function current_section_index(state)
 end
 
 function M.open(state, callbacks)
-	local width = math.floor(vim.o.columns * 0.7)
-	local height = math.floor(vim.o.lines * 0.7)
-	local row = math.floor((vim.o.lines - height) / 2)
-	local col = math.floor((vim.o.columns - width) / 2)
+	local size = window_size()
 
 	state.buf = vim.api.nvim_create_buf(false, true)
 	vim.bo[state.buf].bufhidden = "wipe"
@@ -110,10 +154,10 @@ function M.open(state, callbacks)
 
 	state.win = vim.api.nvim_open_win(state.buf, true, {
 		relative = "editor",
-		width = width,
-		height = height,
-		row = row,
-		col = col,
+		width = size.width,
+		height = size.height,
+		row = size.row,
+		col = size.col,
 		style = "minimal",
 		border = "rounded",
 		focusable = true,
@@ -135,8 +179,24 @@ function M.open(state, callbacks)
 	vim.keymap.set("n", "[[", callbacks.prev_section, opts)
 	vim.keymap.set("n", "<Tab>", callbacks.next_section, opts)
 	vim.keymap.set("n", "<S-Tab>", callbacks.prev_section, opts)
+	vim.keymap.set("n", "?", callbacks.toggle_help, opts)
 	vim.keymap.set("n", "<CR>", function()
 		callbacks.answer(3)
+	end, opts)
+	vim.keymap.set("n", "<S-CR>", function()
+		callbacks.answer(4)
+	end, opts)
+	vim.keymap.set("n", "<BS>", function()
+		callbacks.answer(2)
+	end, opts)
+	vim.keymap.set("n", "<Del>", function()
+		callbacks.answer(2)
+	end, opts)
+	vim.keymap.set("n", "<S-BS>", function()
+		callbacks.answer(1)
+	end, opts)
+	vim.keymap.set("n", "<S-Del>", function()
+		callbacks.answer(1)
 	end, opts)
 	for _, ease in ipairs({ 1, 2, 3, 4 }) do
 		local answer_ease = ease
@@ -150,6 +210,25 @@ function M.open(state, callbacks)
 		pattern = tostring(state.win),
 		once = true,
 		callback = callbacks.closed,
+	})
+
+	vim.api.nvim_create_autocmd("VimResized", {
+		buffer = state.buf,
+		callback = function()
+			if not state.win or not vim.api.nvim_win_is_valid(state.win) then
+				return
+			end
+
+			local resized = window_size()
+			vim.api.nvim_win_set_config(state.win, {
+				relative = "editor",
+				width = resized.width,
+				height = resized.height,
+				row = resized.row,
+				col = resized.col,
+			})
+			M.render(state)
+		end,
 	})
 end
 
@@ -223,11 +302,12 @@ function M.render(state)
 		table.insert(lines, "")
 		table.insert(lines, string.rep("─", state.win and vim.api.nvim_win_get_width(state.win) - 2 or 60))
 		mark_section("buttons")
-		if state.showing_answer then
-			table.insert(lines, answer_hints(state.current_card))
-			table.insert(lines, "gq Question    ga Answer    gb Buttons    [[/]] or <Tab> Blocks")
+		if state.show_help then
+			for _, hint in ipairs(full_hints(state)) do
+				table.insert(lines, hint)
+			end
 		else
-			table.insert(lines, "<Space> Reveal answer    gq Question    gb Keys    [[/]] or <Tab> Blocks    q Quit")
+			table.insert(lines, compact_hints(state))
 		end
 	end
 
