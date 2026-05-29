@@ -2,6 +2,7 @@ local text = require("anki_review.text")
 local config = require("anki_review.config")
 
 local M = {}
+local ns = vim.api.nvim_create_namespace("anki_review")
 
 local answer_labels = {
 	[1] = "Again",
@@ -106,6 +107,33 @@ end
 
 local question_hints = "<Space> Reveal answer    q Quit"
 
+local function setup_highlights()
+	vim.api.nvim_set_hl(0, "AnkiReviewTitle", { link = "Title", default = true })
+	vim.api.nvim_set_hl(0, "AnkiReviewSection", { link = "Statement", default = true })
+	vim.api.nvim_set_hl(0, "AnkiReviewProgress", { link = "Comment", default = true })
+	vim.api.nvim_set_hl(0, "AnkiReviewHint", { link = "Special", default = true })
+	vim.api.nvim_set_hl(0, "AnkiReviewError", { link = "ErrorMsg", default = true })
+end
+
+local function add_highlights(state, lines)
+	vim.api.nvim_buf_clear_namespace(state.buf, ns, 0, -1)
+
+	for i, line in ipairs(lines) do
+		local row = i - 1
+		if line == "Error" then
+			vim.api.nvim_buf_add_highlight(state.buf, ns, "AnkiReviewError", row, 0, -1)
+		elseif line == "QUESTION" or line == "ANSWER" or line == "Session" then
+			vim.api.nvim_buf_add_highlight(state.buf, ns, "AnkiReviewSection", row, 0, -1)
+		elseif line:match("^Deck:") or line:match("^Review complete") then
+			vim.api.nvim_buf_add_highlight(state.buf, ns, "AnkiReviewTitle", row, 0, -1)
+		elseif line:match("^Due:") or line:match("^Answered:") or line:match("^Again:") then
+			vim.api.nvim_buf_add_highlight(state.buf, ns, "AnkiReviewProgress", row, 0, -1)
+		elseif line:match("Reveal answer") or line:match("Keys:") or line:match("Aliases:") or line:match("Nav:") then
+			vim.api.nvim_buf_add_highlight(state.buf, ns, "AnkiReviewHint", row, 0, -1)
+		end
+	end
+end
+
 local function compact_hints(state)
 	if state.showing_answer then
 		return answer_hints(state.current_card) .. "    ? Toggle help    q Quit"
@@ -160,6 +188,7 @@ local function current_section_index(state)
 end
 
 function M.open(state, callbacks)
+	setup_highlights()
 	local size = window_size()
 
 	state.buf = vim.api.nvim_create_buf(false, true)
@@ -343,6 +372,7 @@ function M.render(state)
 
 	vim.bo[state.buf].modifiable = true
 	vim.api.nvim_buf_set_lines(state.buf, 0, -1, false, normalized)
+	add_highlights(state, normalized)
 	vim.bo[state.buf].modifiable = false
 
 	local pending_focus = state.pending_focus
@@ -402,6 +432,10 @@ end
 
 function M._window_size()
 	return window_size()
+end
+
+function M.setup_highlights()
+	setup_highlights()
 end
 
 return M

@@ -3,6 +3,7 @@ local config = require("anki_review.config")
 local picker = require("anki_review.picker")
 local session = require("anki_review.session")
 local persisted = require("anki_review.state")
+local ui = require("anki_review.ui")
 
 local M = {}
 
@@ -26,7 +27,9 @@ local function pick_deck()
 end
 
 function M.setup(opts)
-	return config.setup(opts)
+	local options = config.setup(opts)
+	ui.setup_highlights()
+	return options
 end
 
 function M.start(deck)

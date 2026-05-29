@@ -150,6 +150,7 @@ test("setup merges config", function()
 	eq(opts.window.width, 0.5)
 	eq(opts.window.height, 0.72)
 	eq(opts.default_ease, 4)
+	assert_true(vim.fn.hlexists("AnkiReviewTitle") == 1, "missing title highlight")
 	config.setup()
 end)
 

@@ -76,6 +76,16 @@ require("anki_review").setup({
 
 last deck is stored at `stdpath("state")/anki_review/state.json`.
 
+highlight groups:
+
+```text
+AnkiReviewTitle
+AnkiReviewSection
+AnkiReviewProgress
+AnkiReviewHint
+AnkiReviewError
+```
+
 ---
 
 ## usage
