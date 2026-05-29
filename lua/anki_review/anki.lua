@@ -27,20 +27,23 @@ function M.request(action, params)
 	}):wait(opts.timeout)
 
 	if not result then
-		return nil, "Request to AnkiConnect timed out."
+		return nil, "AnkiConnect request timed out after " .. tostring(opts.timeout) .. "ms: " .. action
 	end
 
 	if result.code ~= 0 then
-		return nil, "AnkiConnect is not reachable. Make sure Anki is running with AnkiConnect enabled."
+		return nil,
+			"AnkiConnect is not reachable at "
+				.. opts.endpoint
+				.. ". Make sure Anki is running with AnkiConnect enabled."
 	end
 
 	if not result.stdout or result.stdout == "" then
-		return nil, "AnkiConnect returned an empty response."
+		return nil, "AnkiConnect returned an empty response for " .. action .. "."
 	end
 
 	local ok, decoded = pcall(vim.json.decode, result.stdout)
 	if not ok or not decoded then
-		return nil, "Failed to parse AnkiConnect response."
+		return nil, "Failed to parse AnkiConnect response for " .. action .. "."
 	end
 
 	if decoded.error and decoded.error ~= vim.NIL then
