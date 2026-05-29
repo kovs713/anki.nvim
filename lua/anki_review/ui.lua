@@ -16,15 +16,30 @@ end
 local function window_size()
 	local columns = vim.o.columns
 	local lines = vim.o.lines - vim.o.cmdheight
-	local width = clamp(math.floor(columns * 0.72), math.min(60, columns - 4), math.min(110, columns - 4))
-	local height = clamp(math.floor(lines * 0.72), math.min(18, lines - 4), math.min(34, lines - 4))
+	local max_width = math.max(1, columns - 4)
+	local max_height = math.max(1, lines - 4)
+	local min_width = math.min(60, max_width)
+	local min_height = math.min(18, max_height)
+	local width = clamp(math.floor(columns * 0.72), min_width, math.min(110, max_width))
+	local height = clamp(math.floor(lines * 0.72), min_height, math.min(34, max_height))
 
 	return {
-		width = math.max(20, width),
-		height = math.max(8, height),
+		width = math.max(1, width),
+		height = math.max(1, height),
 		row = math.max(0, math.floor((lines - height) / 2)),
 		col = math.max(0, math.floor((columns - width) / 2)),
 	}
+end
+
+local function clear_autocmds(state)
+	if not state.autocmds then
+		return
+	end
+
+	for _, autocmd in ipairs(state.autocmds) do
+		pcall(vim.api.nvim_del_autocmd, autocmd)
+	end
+	state.autocmds = nil
 end
 
 local function format_time(seconds)
@@ -89,17 +104,17 @@ local question_hints = "<Space> Reveal answer    q Quit"
 
 local function compact_hints(state)
 	if state.showing_answer then
-		return answer_hints(state.current_card) .. "    ? Help    q"
+		return answer_hints(state.current_card) .. "    ? Toggle help    q Quit"
 	end
 
-	return question_hints .. "    ? Help"
+	return question_hints .. "    ? Toggle help"
 end
 
 local function full_hints(state)
 	if state.showing_answer then
 		return {
-			answer_hints(state.current_card) .. "    q",
-			"Keys: Enter=Good    BS/Del=Hard    S-Enter=Easy    S-BS/Del=Again",
+			answer_hints(state.current_card) .. "    q Quit",
+			"Aliases: <S-BS>/<S-Del>=Again    <BS>/<Del>=Hard    <CR>=Good    <S-CR>=Easy",
 			"Nav: gq question    ga answer    gb buttons    Tab blocks    ? hide",
 		}
 	end
@@ -201,33 +216,44 @@ function M.open(state, callbacks)
 	end
 	vim.keymap.set("n", "q", callbacks.close, opts)
 
-	vim.api.nvim_create_autocmd("WinClosed", {
-		pattern = tostring(state.win),
-		once = true,
-		callback = callbacks.closed,
-	})
+	state.autocmds = {}
+	table.insert(
+		state.autocmds,
+		vim.api.nvim_create_autocmd("WinClosed", {
+			pattern = tostring(state.win),
+			once = true,
+			callback = function()
+				clear_autocmds(state)
+				callbacks.closed()
+			end,
+		})
+	)
 
-	vim.api.nvim_create_autocmd("VimResized", {
-		buffer = state.buf,
-		callback = function()
-			if not state.win or not vim.api.nvim_win_is_valid(state.win) then
-				return
-			end
+	table.insert(
+		state.autocmds,
+		vim.api.nvim_create_autocmd("VimResized", {
+			callback = function()
+				if not state.win or not vim.api.nvim_win_is_valid(state.win) then
+					clear_autocmds(state)
+					return
+				end
 
-			local resized = window_size()
-			vim.api.nvim_win_set_config(state.win, {
-				relative = "editor",
-				width = resized.width,
-				height = resized.height,
-				row = resized.row,
-				col = resized.col,
-			})
-			M.render(state)
-		end,
-	})
+				local resized = window_size()
+				vim.api.nvim_win_set_config(state.win, {
+					relative = "editor",
+					width = resized.width,
+					height = resized.height,
+					row = resized.row,
+					col = resized.col,
+				})
+				M.render(state)
+			end,
+		})
+	)
 end
 
 function M.close(state)
+	clear_autocmds(state)
 	if state.win and vim.api.nvim_win_is_valid(state.win) then
 		vim.api.nvim_win_close(state.win, true)
 	end
@@ -295,7 +321,8 @@ function M.render(state)
 		end
 
 		table.insert(lines, "")
-		table.insert(lines, string.rep("─", state.win and vim.api.nvim_win_get_width(state.win) - 2 or 60))
+		local separator_width = math.max(1, state.win and vim.api.nvim_win_get_width(state.win) - 2 or 60)
+		table.insert(lines, string.rep("─", separator_width))
 		mark_section("buttons")
 		if state.show_help then
 			for _, hint in ipairs(full_hints(state)) do
@@ -367,6 +394,10 @@ function M.valid_answer(card, ease)
 	end
 
 	return false
+end
+
+function M._window_size()
+	return window_size()
 end
 
 return M
