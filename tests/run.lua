@@ -134,6 +134,54 @@ test("answer help follows displayed answer order", function()
 	vim.api.nvim_buf_delete(state.buf, { force = true })
 end)
 
+test("setup merges config", function()
+	local anki_review = require("anki_review")
+	local config = require("anki_review.config")
+	anki_review.setup({
+		endpoint = "http://example.test:8765",
+		timeout = 123,
+		window = { width = 0.5 },
+		default_ease = 4,
+	})
+
+	local opts = config.get()
+	eq(opts.endpoint, "http://example.test:8765")
+	eq(opts.timeout, 123)
+	eq(opts.window.width, 0.5)
+	eq(opts.window.height, 0.72)
+	eq(opts.default_ease, 4)
+	config.setup()
+end)
+
+test("anki request uses configured endpoint and timeout", function()
+	local config = require("anki_review.config")
+	local anki = require("anki_review.anki")
+	local old_system = vim.system
+	local command
+	local timeout
+
+	config.setup({ endpoint = "http://anki.test", timeout = 42 })
+	vim.system = function(cmd)
+		command = cmd
+		return {
+			wait = function(_, value)
+				timeout = value
+				return { code = 0, stdout = vim.json.encode({ result = 6 }) }
+			end,
+		}
+	end
+
+	local result, err = anki.version()
+	eq(result, 6)
+	eq(err, nil)
+	eq(command[5], "http://anki.test")
+	eq(timeout, 42)
+	eq(anki.endpoint(), "http://anki.test")
+
+	vim.system = old_system
+	config.setup()
+end)
+
 if #failures > 0 then
 	for _, failure in ipairs(failures) do
 		io.stderr:write(failure .. "\n")

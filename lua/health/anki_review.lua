@@ -34,7 +34,7 @@ function M.check()
 		return
 	end
 
-	h.info("AnkiConnect endpoint: " .. anki.endpoint)
+	h.info("AnkiConnect endpoint: " .. anki.endpoint())
 
 	local version, err = anki.version()
 	if err then

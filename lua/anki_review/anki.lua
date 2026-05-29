@@ -1,10 +1,13 @@
 local M = {}
 
-local endpoint = "http://127.0.0.1:8765"
+local config = require("anki_review.config")
 
-M.endpoint = endpoint
+function M.endpoint()
+	return config.get().endpoint
+end
 
 function M.request(action, params)
+	local opts = config.get()
 	local payload = vim.json.encode({
 		action = action,
 		version = 6,
@@ -16,12 +19,12 @@ function M.request(action, params)
 		"-s",
 		"-X",
 		"POST",
-		endpoint,
+		opts.endpoint,
 		"-H",
 		"Content-Type: application/json",
 		"-d",
 		payload,
-	}):wait(5000)
+	}):wait(opts.timeout)
 
 	if not result then
 		return nil, "Request to AnkiConnect timed out."

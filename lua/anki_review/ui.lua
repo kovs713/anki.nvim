@@ -1,4 +1,5 @@
 local text = require("anki_review.text")
+local config = require("anki_review.config")
 
 local M = {}
 
@@ -16,12 +17,15 @@ end
 local function window_size()
 	local columns = vim.o.columns
 	local lines = vim.o.lines - vim.o.cmdheight
+	local window = config.get().window or {}
 	local max_width = math.max(1, columns - 4)
 	local max_height = math.max(1, lines - 4)
-	local min_width = math.min(60, max_width)
-	local min_height = math.min(18, max_height)
-	local width = clamp(math.floor(columns * 0.72), min_width, math.min(110, max_width))
-	local height = clamp(math.floor(lines * 0.72), min_height, math.min(34, max_height))
+	local min_width = math.min(window.min_width or 60, max_width)
+	local min_height = math.min(window.min_height or 18, max_height)
+	local width =
+		clamp(math.floor(columns * (window.width or 0.72)), min_width, math.min(window.max_width or 110, max_width))
+	local height =
+		clamp(math.floor(lines * (window.height or 0.72)), min_height, math.min(window.max_height or 34, max_height))
 
 	return {
 		width = math.max(1, width),
@@ -191,7 +195,7 @@ function M.open(state, callbacks)
 	vim.keymap.set("n", "<S-Tab>", callbacks.prev_section, opts)
 	vim.keymap.set("n", "?", callbacks.toggle_help, opts)
 	vim.keymap.set("n", "<CR>", function()
-		callbacks.answer(3)
+		callbacks.answer(config.get().default_ease)
 	end, opts)
 	vim.keymap.set("n", "<S-CR>", function()
 		callbacks.answer(4)

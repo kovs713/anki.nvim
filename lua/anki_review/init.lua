@@ -1,4 +1,5 @@
 local anki = require("anki_review.anki")
+local config = require("anki_review.config")
 local picker = require("anki_review.picker")
 local session = require("anki_review.session")
 
@@ -21,6 +22,10 @@ local function pick_deck()
 			M.start(deck)
 		end
 	end)
+end
+
+function M.setup(opts)
+	return config.setup(opts)
 end
 
 function M.start(deck)

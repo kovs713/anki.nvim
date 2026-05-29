@@ -31,6 +31,9 @@ tiny Neovim bridge for reviewing anki decks in a clean floating window.
 {
   "kovs713/anki.nvim",
   cmd = "AnkiReview",
+  config = function()
+    require("anki_review").setup()
+  end,
 }
 ```
 
@@ -51,6 +54,25 @@ neovim 0.10+, curl, Anki, AnkiConnect
 install AnkiConnect from AnkiWeb: `2055492159`.
 
 anki must be open. AnkiConnect must listen on `http://127.0.0.1:8765`.
+
+### config
+
+```lua
+require("anki_review").setup({
+  endpoint = "http://127.0.0.1:8765",
+  timeout = 5000,
+  remember_last_deck = true,
+  default_ease = 3,
+  window = {
+    width = 0.72,
+    height = 0.72,
+    min_width = 60,
+    max_width = 110,
+    min_height = 18,
+    max_height = 34,
+  },
+})
+```
 
 ---
 
