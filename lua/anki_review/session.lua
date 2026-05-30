@@ -200,7 +200,7 @@ function M.start(deck)
 		complete = false,
 	}
 
-	ui.open(state, {
+	local opened = ui.open(state, {
 		show_answer = M.show_answer,
 		answer = M.answer,
 		focus_section = M.focus_section,
@@ -215,18 +215,22 @@ function M.start(deck)
 			state.buf = nil
 		end,
 	})
+	if not opened then
+		return false
+	end
 
 	local _, err = anki.start_review(deck)
 	if err then
 		state.error = err
 		render()
-		return
+		return false
 	end
 
 	state.started_at = os.time()
 	refresh_progress()
 	start_timer()
 	M.load_current_card()
+	return true
 end
 
 return M

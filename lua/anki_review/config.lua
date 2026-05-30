@@ -1,23 +1,50 @@
 local M = {}
 
 local defaults = {
-	endpoint = "http://127.0.0.1:8765",
-	timeout = 5000,
-	window = {
-		width = 0.72,
-		height = 0.72,
-		min_width = 60,
-		max_width = 110,
-		min_height = 18,
-		max_height = 34,
+	anki = {
+		endpoint = "http://127.0.0.1:8765",
+		version = 6,
+		timeout = 5000,
 	},
-	remember_last_deck = false,
-	default_ease = 3,
+	window = {
+		width = 0.7,
+		height = 0.7,
+		min_width = 40,
+		min_height = 12,
+		border = "rounded",
+	},
+	picker = {
+		width = 0.5,
+		height = 0.6,
+	},
+	behavior = {
+		remember_last_deck = true,
+		default_ease = 3,
+	},
 }
 
 M.options = vim.deepcopy(defaults)
 
 function M.setup(opts)
+	opts = opts or {}
+	if opts.endpoint or opts.timeout or opts.version then
+		opts.anki = vim.tbl_deep_extend("force", opts.anki or {}, {
+			endpoint = opts.endpoint,
+			version = opts.version,
+			timeout = opts.timeout,
+		})
+		opts.endpoint = nil
+		opts.version = nil
+		opts.timeout = nil
+	end
+	if opts.remember_last_deck ~= nil or opts.default_ease ~= nil then
+		opts.behavior = vim.tbl_deep_extend("force", opts.behavior or {}, {
+			remember_last_deck = opts.remember_last_deck,
+			default_ease = opts.default_ease,
+		})
+		opts.remember_last_deck = nil
+		opts.default_ease = nil
+	end
 	M.options = vim.tbl_deep_extend("force", vim.deepcopy(defaults), opts or {})
 	return M.options
 end

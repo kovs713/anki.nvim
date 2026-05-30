@@ -25,8 +25,11 @@ end
 
 local function write_state(data)
 	local path = state_path()
-	vim.fn.mkdir(vim.fn.fnamemodify(path, ":h"), "p")
-	vim.fn.writefile({ vim.json.encode(data) }, path)
+	local ok = pcall(function()
+		vim.fn.mkdir(vim.fn.fnamemodify(path, ":h"), "p")
+		vim.fn.writefile({ vim.json.encode(data) }, path)
+	end)
+	return ok
 end
 
 function M.last_deck()
@@ -40,7 +43,7 @@ function M.set_last_deck(deck)
 
 	local data = read_state()
 	data.last_deck = deck
-	write_state(data)
+	return write_state({ last_deck = data.last_deck })
 end
 
 function M._path()

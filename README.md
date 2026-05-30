@@ -15,7 +15,7 @@ tiny Neovim bridge for reviewing anki decks in a clean floating window.
 |---|---|
 | ui | centered floating review window |
 | backend | AnkiConnect over localhost |
-| command | `:AnkiReview` |
+| command | `:AnkiReview`, `:AnkiReview!`, `:AnkiReviewHome` |
 | decks | picker when no deck is passed |
 | answers | `1` Again · `2` Hard · `3` Good · `4` Easy |
 | default | `<CR>` answers Good |
@@ -30,7 +30,7 @@ tiny Neovim bridge for reviewing anki decks in a clean floating window.
 ```lua
 {
   "kovs713/anki.nvim",
-  cmd = "AnkiReview",
+  cmd = { "AnkiReview", "AnkiReviewHome" },
   config = function()
     require("anki_review").setup()
   end,
@@ -59,17 +59,25 @@ anki must be open. AnkiConnect must listen on `http://127.0.0.1:8765`.
 
 ```lua
 require("anki_review").setup({
-  endpoint = "http://127.0.0.1:8765",
-  timeout = 5000,
-  remember_last_deck = false,
-  default_ease = 3,
+  anki = {
+    endpoint = "http://127.0.0.1:8765",
+    version = 6,
+    timeout = 5000,
+  },
   window = {
-    width = 0.72,
-    height = 0.72,
-    min_width = 60,
-    max_width = 110,
-    min_height = 18,
-    max_height = 34,
+    width = 0.7,
+    height = 0.7,
+    min_width = 40,
+    min_height = 12,
+    border = "rounded",
+  },
+  picker = {
+    width = 0.5,
+    height = 0.6,
+  },
+  behavior = {
+    remember_last_deck = true,
+    default_ease = 3,
   },
 })
 ```
@@ -102,6 +110,18 @@ opens a deck picker.
 
 starts that deck directly.
 
+```vim
+:AnkiReview!
+```
+
+starts the last saved deck.
+
+```vim
+:AnkiReviewHome
+```
+
+opens the small cave menu: pick deck, review last deck, health notes, help.
+
 ---
 
 ## keys
@@ -129,6 +149,36 @@ starts that deck directly.
 **respect** — only shows answer choices available for the current card.
 
 **finish** — detects empty decks / completed reviews and gets out of the way.
+
+---
+
+## integrations
+
+### Review Heatmap
+
+`anki.nvim` answers cards through AnkiConnect, so reviews are still recorded by
+Anki itself. Stats/history add-ons like Review Heatmap should pick them up as
+normal Anki reviews.
+
+Visual add-ons that modify Anki's reviewer UI, card webview, buttons, colors,
+or keyboard shortcuts are not rendered inside the Neovim floating window.
+
+If local TSV/offline mode exists later, it will not be compatible with Anki
+add-ons unless it syncs review data back to Anki.
+
+---
+
+## manual checks
+
+- `:AnkiReview` opens picker.
+- `:AnkiReview SomeDeck` starts review.
+- `:AnkiReview!` starts last deck or warns if none saved.
+- `:AnkiReviewHome` opens without Anki running.
+- review float survives terminal resize.
+- closing review clears timer and resize autocmd.
+- tiny terminal does not crash.
+- bad or missing state file does not crash.
+- offline AnkiConnect shows a friendly error.
 
 ---
 

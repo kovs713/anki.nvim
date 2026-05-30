@@ -3,14 +3,14 @@ local M = {}
 local config = require("anki_review.config")
 
 function M.endpoint()
-	return config.get().endpoint
+	return config.get().anki.endpoint
 end
 
 function M.request(action, params)
-	local opts = config.get()
+	local opts = config.get().anki
 	local payload = vim.json.encode({
 		action = action,
-		version = 6,
+		version = opts.version,
 		params = params or vim.empty_dict(),
 	})
 

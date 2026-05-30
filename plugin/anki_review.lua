@@ -1,3 +1,13 @@
 vim.api.nvim_create_user_command("AnkiReview", function(opts)
-	require("anki_review").start(opts.args)
-end, { nargs = "*" })
+	local anki_review = require("anki_review")
+	if opts.bang then
+		anki_review.start_last()
+		return
+	end
+
+	anki_review.start(opts.args)
+end, { nargs = "*", bang = true })
+
+vim.api.nvim_create_user_command("AnkiReviewHome", function()
+	require("anki_review").home()
+end, {})

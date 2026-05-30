@@ -24,8 +24,14 @@ end
 
 test("strip_html removes markup and entities", function()
 	local text = require("anki_review.text")
-	local cleaned = text.strip_html("<div>Hello&nbsp;&amp;<br>world</div><script>x()</script>")
-	eq(cleaned, "Hello &\nworld")
+	local cleaned = text.strip_html("<div>Hello&nbsp;&amp;<br>world</div><script>x()</script>&hellip;&mdash;&ndash;")
+	eq(cleaned, "Hello &\nworld\n...--")
+end)
+
+test("strip_html keeps media references", function()
+	local text = require("anki_review.text")
+	local cleaned = text.strip_html([[<p>[sound:voice.mp3]<br><img alt="x" src="pic.png"></p>]])
+	eq(cleaned, "[audio: voice.mp3]\n[image: pic.png]")
 end)
 
 test("card_text sorts fields and strips html", function()
@@ -51,8 +57,8 @@ test("window_size fits tiny editor", function()
 	vim.o.cmdheight = 1
 
 	local size = ui._window_size()
-	assert_true(size.width <= vim.o.columns - 4, "width exceeds editor")
-	assert_true(size.height <= vim.o.lines - vim.o.cmdheight - 4, "height exceeds editor")
+	assert_true(size.width <= vim.o.columns, "width exceeds editor")
+	assert_true(size.height <= vim.o.lines - vim.o.cmdheight, "height exceeds editor")
 	assert_true(size.width >= 1, "width too small")
 	assert_true(size.height >= 1, "height too small")
 
@@ -85,6 +91,7 @@ test("open creates working resize autocmd and close clears it", function()
 	})
 	ui.render(state)
 	assert_true(state.win and vim.api.nvim_win_is_valid(state.win), "window not opened")
+	assert_true(state.augroup, "augroup not tracked")
 	assert_true(state.autocmds and #state.autocmds == 2, "autocmds not tracked")
 
 	vim.api.nvim_exec_autocmds("VimResized", {})
@@ -93,6 +100,8 @@ test("open creates working resize autocmd and close clears it", function()
 	eq(state.win, nil)
 	eq(state.buf, nil)
 	eq(state.autocmds, nil)
+	local ok, autocmds = pcall(vim.api.nvim_get_autocmds, { group = "AnkiReviewUI" })
+	assert_true(not ok or #autocmds == 0, "resize autocmd leaked")
 	eq(closed, false)
 end)
 
@@ -145,12 +154,12 @@ test("setup merges config", function()
 	})
 
 	local opts = config.get()
-	eq(opts.endpoint, "http://example.test:8765")
-	eq(opts.timeout, 123)
-	eq(opts.remember_last_deck, false)
+	eq(opts.anki.endpoint, "http://example.test:8765")
+	eq(opts.anki.timeout, 123)
+	eq(opts.behavior.remember_last_deck, true)
 	eq(opts.window.width, 0.5)
-	eq(opts.window.height, 0.72)
-	eq(opts.default_ease, 4)
+	eq(opts.window.height, 0.7)
+	eq(opts.behavior.default_ease, 4)
 	assert_true(vim.fn.hlexists("AnkiReviewTitle") == 1, "missing title highlight")
 	config.setup()
 end)
@@ -182,6 +191,42 @@ test("anki request uses configured endpoint and timeout", function()
 
 	vim.system = old_system
 	config.setup()
+end)
+
+test("state stores last deck and ignores corrupt json", function()
+	local state = require("anki_review.state")
+	local path = state._path()
+	local existed = vim.fn.filereadable(path) == 1
+	local old = existed and vim.fn.readfile(path) or nil
+
+	state.set_last_deck("Japanese::Core")
+	eq(state.last_deck(), "Japanese::Core")
+	vim.fn.writefile({ "{" }, path)
+	eq(state.last_deck(), nil)
+
+	if existed then
+		vim.fn.writefile(old, path)
+	else
+		vim.fn.delete(path)
+	end
+end)
+
+test("picker selects last deck by default", function()
+	local picker = require("anki_review.picker")
+	local chosen
+	picker.select(
+		{ "Default", "Japanese::Core", "Other" },
+		{ prompt = "Anki deck", selected = "Japanese::Core" },
+		function(item)
+			chosen = item
+		end
+	)
+
+	local buf = vim.api.nvim_get_current_buf()
+	local rendered = table.concat(vim.api.nvim_buf_get_lines(buf, 0, -1, false), "\n")
+	assert_true(rendered:find("> Japanese::Core", 1, true), "selected deck not highlighted")
+	vim.api.nvim_win_close(vim.api.nvim_get_current_win(), true)
+	eq(chosen, nil)
 end)
 
 if #failures > 0 then

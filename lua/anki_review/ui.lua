@@ -3,6 +3,7 @@ local config = require("anki_review.config")
 
 local M = {}
 local ns = vim.api.nvim_create_namespace("anki_review")
+local augroup_name = "AnkiReviewUI"
 
 local answer_labels = {
 	[1] = "Again",
@@ -16,17 +17,15 @@ local function clamp(value, min, max)
 end
 
 local function window_size()
-	local columns = vim.o.columns
-	local lines = vim.o.lines - vim.o.cmdheight
+	local columns = math.max(1, vim.o.columns)
+	local lines = math.max(1, vim.o.lines - vim.o.cmdheight)
 	local window = config.get().window or {}
-	local max_width = math.max(1, columns - 4)
-	local max_height = math.max(1, lines - 4)
-	local min_width = math.min(window.min_width or 60, max_width)
-	local min_height = math.min(window.min_height or 18, max_height)
-	local width =
-		clamp(math.floor(columns * (window.width or 0.72)), min_width, math.min(window.max_width or 110, max_width))
-	local height =
-		clamp(math.floor(lines * (window.height or 0.72)), min_height, math.min(window.max_height or 34, max_height))
+	local max_width = math.max(1, columns - 2)
+	local max_height = math.max(1, lines - 2)
+	local min_width = clamp(window.min_width or 40, 1, max_width)
+	local min_height = clamp(window.min_height or 12, 1, max_height)
+	local width = clamp(math.floor(columns * (window.width or 0.7)), min_width, max_width)
+	local height = clamp(math.floor(lines * (window.height or 0.7)), min_height, max_height)
 
 	return {
 		width = math.max(1, width),
@@ -37,6 +36,13 @@ local function window_size()
 end
 
 local function clear_autocmds(state)
+	if state.augroup then
+		pcall(vim.api.nvim_del_augroup_by_id, state.augroup)
+		state.augroup = nil
+		state.autocmds = nil
+		return
+	end
+
 	if not state.autocmds then
 		return
 	end
@@ -195,17 +201,24 @@ function M.open(state, callbacks)
 	vim.bo[state.buf].bufhidden = "wipe"
 	vim.bo[state.buf].filetype = "anki_review"
 
-	state.win = vim.api.nvim_open_win(state.buf, true, {
+	local ok, win = pcall(vim.api.nvim_open_win, state.buf, true, {
 		relative = "editor",
 		width = size.width,
 		height = size.height,
 		row = size.row,
 		col = size.col,
 		style = "minimal",
-		border = "rounded",
+		border = config.get().window.border,
 		focusable = true,
 		zindex = 100,
 	})
+	if not ok then
+		vim.api.nvim_buf_delete(state.buf, { force = true })
+		state.buf = nil
+		vim.notify("AnkiReview: editor is too small for review window", vim.log.levels.ERROR)
+		return false
+	end
+	state.win = win
 
 	local opts = { buffer = state.buf, noremap = true, silent = true, nowait = true }
 	vim.keymap.set("n", "<Space>", callbacks.show_answer, opts)
@@ -224,7 +237,7 @@ function M.open(state, callbacks)
 	vim.keymap.set("n", "<S-Tab>", callbacks.prev_section, opts)
 	vim.keymap.set("n", "?", callbacks.toggle_help, opts)
 	vim.keymap.set("n", "<CR>", function()
-		callbacks.answer(config.get().default_ease)
+		callbacks.answer(config.get().behavior.default_ease)
 	end, opts)
 	vim.keymap.set("n", "<S-CR>", function()
 		callbacks.answer(4)
@@ -249,10 +262,12 @@ function M.open(state, callbacks)
 	end
 	vim.keymap.set("n", "q", callbacks.close, opts)
 
+	state.augroup = vim.api.nvim_create_augroup(augroup_name, { clear = true })
 	state.autocmds = {}
 	table.insert(
 		state.autocmds,
 		vim.api.nvim_create_autocmd("WinClosed", {
+			group = state.augroup,
 			pattern = tostring(state.win),
 			once = true,
 			callback = function()
@@ -265,6 +280,7 @@ function M.open(state, callbacks)
 	table.insert(
 		state.autocmds,
 		vim.api.nvim_create_autocmd("VimResized", {
+			group = state.augroup,
 			callback = function()
 				if not state.win or not vim.api.nvim_win_is_valid(state.win) then
 					clear_autocmds(state)
@@ -272,17 +288,21 @@ function M.open(state, callbacks)
 				end
 
 				local resized = window_size()
-				vim.api.nvim_win_set_config(state.win, {
+				local resize_ok = pcall(vim.api.nvim_win_set_config, state.win, {
 					relative = "editor",
 					width = resized.width,
 					height = resized.height,
 					row = resized.row,
 					col = resized.col,
 				})
+				if not resize_ok then
+					return
+				end
 				M.render(state)
 			end,
 		})
 	)
+	return true
 end
 
 function M.close(state)

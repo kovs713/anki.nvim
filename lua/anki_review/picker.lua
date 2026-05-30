@@ -1,4 +1,5 @@
 local M = {}
+local config = require("anki_review.config")
 
 local function clamp(value, min, max)
 	return math.min(math.max(value, min), max)
@@ -51,15 +52,27 @@ function M.select(items, opts, callback)
 		return
 	end
 
-	local width = clamp(math.floor(vim.o.columns * 0.45), 30, 80)
-	local height = clamp(#items + 2, 5, math.floor(vim.o.lines * 0.6))
-	local row = math.floor((vim.o.lines - height) / 2)
-	local col = math.floor((vim.o.columns - width) / 2)
+	local picker = config.get().picker or {}
+	local columns = math.max(1, vim.o.columns)
+	local lines = math.max(1, vim.o.lines - vim.o.cmdheight)
+	local width = clamp(math.floor(columns * (picker.width or 0.5)), 1, math.max(1, columns - 2))
+	local height = clamp(#items + 2, 1, math.max(1, math.floor(lines * (picker.height or 0.6))))
+	local row = math.max(0, math.floor((lines - height) / 2))
+	local col = math.max(0, math.floor((columns - width) / 2))
+	local index = 1
+	if opts.selected then
+		for i, item in ipairs(items) do
+			if item == opts.selected then
+				index = i
+				break
+			end
+		end
+	end
 
 	local state = {
 		items = items,
 		prompt = opts.prompt or "Select item",
-		index = 1,
+		index = index,
 		offset = 1,
 		height = height,
 		buf = vim.api.nvim_create_buf(false, true),
@@ -69,17 +82,24 @@ function M.select(items, opts, callback)
 	vim.bo[state.buf].bufhidden = "wipe"
 	vim.bo[state.buf].filetype = "anki_review_picker"
 
-	state.win = vim.api.nvim_open_win(state.buf, true, {
+	local ok, win = pcall(vim.api.nvim_open_win, state.buf, true, {
 		relative = "editor",
 		width = width,
 		height = height,
 		row = row,
 		col = col,
 		style = "minimal",
-		border = "rounded",
+		border = config.get().window.border,
 		focusable = true,
 		zindex = 110,
 	})
+	if not ok then
+		vim.api.nvim_buf_delete(state.buf, { force = true })
+		vim.notify("AnkiReview: editor is too small for deck picker", vim.log.levels.ERROR)
+		callback(nil)
+		return
+	end
+	state.win = win
 
 	local function move(delta)
 		state.index = clamp(state.index + delta, 1, #state.items)
