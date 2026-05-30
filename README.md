@@ -168,6 +168,15 @@ starts that deck directly.
 starts the last saved deck.
 
 ```vim
+:AnkiReview home
+:AnkiReview stats
+:AnkiReview last
+:AnkiReview deck <anki deck name>
+```
+
+single-command aliases. Use `deck` when a deck name collides with a built-in alias.
+
+```vim
 :AnkiReviewHome
 ```
 

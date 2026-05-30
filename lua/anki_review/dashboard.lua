@@ -183,7 +183,7 @@ local function dashboard_lines(context)
 	table.insert(lines, " " .. table.concat(symbols, "    "))
 	table.insert(lines, "")
 	table.insert(lines, "Actions")
-	table.insert(lines, "r review deck    l last deck    p picker    s stats    ? help    R refresh    q quit")
+	table.insert(lines, "r/p deck picker    l last deck    s stats    ? help    R refresh    q quit")
 
 	if context.show_help then
 		table.insert(lines, "")

@@ -7,6 +7,10 @@ local ui = require("anki_review.ui")
 
 local M = {}
 
+local function trim(value)
+	return (value or ""):match("^%s*(.-)%s*$")
+end
+
 local function pick_deck()
 	local decks, err = anki.deck_names()
 	if err then
@@ -66,6 +70,47 @@ function M.stats()
 		pick_deck = pick_deck,
 		start_last = M.start_last,
 	}, { view = "stats" })
+end
+
+function M._parse_command(args, bang)
+	args = trim(args)
+	if bang then
+		return "last"
+	end
+	if args == "" then
+		return "picker"
+	end
+
+	local head, rest = args:match("^(%S+)%s*(.*)$")
+	head = head and head:lower() or args:lower()
+	rest = trim(rest)
+
+	if head == "home" then
+		return "home"
+	elseif head == "stats" or head == "stat" then
+		return "stats"
+	elseif head == "last" then
+		return "last"
+	elseif head == "deck" and rest ~= "" then
+		return "deck", rest
+	end
+
+	return "deck", args
+end
+
+function M.command(args, bang)
+	local action, value = M._parse_command(args, bang)
+	if action == "home" then
+		M.home()
+	elseif action == "stats" then
+		M.stats()
+	elseif action == "last" then
+		M.start_last()
+	elseif action == "picker" then
+		M.start()
+	else
+		M.start(value)
+	end
 end
 
 return M
