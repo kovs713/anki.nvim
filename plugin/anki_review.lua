@@ -11,3 +11,7 @@ end, { nargs = "*", bang = true })
 vim.api.nvim_create_user_command("AnkiReviewHome", function()
 	require("anki_review").home()
 end, {})
+
+vim.api.nvim_create_user_command("AnkiReviewStats", function()
+	require("anki_review").stats()
+end, {})

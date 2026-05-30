@@ -21,6 +21,24 @@ local defaults = {
 		remember_last_deck = true,
 		default_ease = 3,
 	},
+	gamification = {
+		enabled = true,
+		xp = {
+			again = 3,
+			hard = 6,
+			good = 10,
+			easy = 12,
+		},
+		streak = {
+			enabled = true,
+		},
+	},
+	dashboard = {
+		enabled = true,
+		activity_days = 7,
+		width = 0.75,
+		height = 0.75,
+	},
 }
 
 M.options = vim.deepcopy(defaults)

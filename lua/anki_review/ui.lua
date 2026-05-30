@@ -70,7 +70,8 @@ end
 local function stats_lines(state)
 	local stats = state.stats or { answered = 0, ease = {} }
 	local total = os.time() - (state.session_started_at or os.time())
-	return {
+	local gamification_enabled = (config.get().gamification or {}).enabled ~= false
+	local lines = {
 		"Session",
 		string.format("Answered: %d    Time: %s", stats.answered or 0, format_time(total)),
 		string.format(
@@ -81,6 +82,15 @@ local function stats_lines(state)
 			(stats.ease and stats.ease[4]) or 0
 		),
 	}
+	if gamification_enabled then
+		table.insert(lines, 3, string.format("XP gained: +%d", stats.xp or 0))
+	else
+		table.insert(lines, "Gamification disabled")
+	end
+	if gamification_enabled and state.gamification_streak then
+		table.insert(lines, string.format("Streak: %d days", state.gamification_streak))
+	end
+	return lines
 end
 
 local function normalize(lines)
@@ -119,6 +129,20 @@ local function setup_highlights()
 	vim.api.nvim_set_hl(0, "AnkiReviewProgress", { link = "Comment", default = true })
 	vim.api.nvim_set_hl(0, "AnkiReviewHint", { link = "Special", default = true })
 	vim.api.nvim_set_hl(0, "AnkiReviewError", { link = "ErrorMsg", default = true })
+	vim.api.nvim_set_hl(0, "AnkiReviewDashboardTitle", { link = "Title", default = true })
+	vim.api.nvim_set_hl(0, "AnkiReviewDashboardSubtitle", { link = "Comment", default = true })
+	vim.api.nvim_set_hl(0, "AnkiReviewDashboardBorder", { link = "FloatBorder", default = true })
+	vim.api.nvim_set_hl(0, "AnkiReviewWidgetTitle", { link = "Statement", default = true })
+	vim.api.nvim_set_hl(0, "AnkiReviewWidgetValue", { link = "Identifier", default = true })
+	vim.api.nvim_set_hl(0, "AnkiReviewXPBar", { link = "String", default = true })
+	vim.api.nvim_set_hl(0, "AnkiReviewXPBarEmpty", { link = "Comment", default = true })
+	vim.api.nvim_set_hl(0, "AnkiReviewStreak", { link = "Special", default = true })
+	vim.api.nvim_set_hl(0, "AnkiReviewActivityEmpty", { link = "Comment", default = true })
+	vim.api.nvim_set_hl(0, "AnkiReviewActivityLow", { link = "Identifier", default = true })
+	vim.api.nvim_set_hl(0, "AnkiReviewActivityMedium", { link = "String", default = true })
+	vim.api.nvim_set_hl(0, "AnkiReviewActivityHigh", { link = "Type", default = true })
+	vim.api.nvim_set_hl(0, "AnkiReviewActivityMax", { link = "Title", default = true })
+	vim.api.nvim_set_hl(0, "AnkiReviewGamificationPopup", { link = "Special", default = true })
 end
 
 local function add_highlights(state, lines)
@@ -132,8 +156,16 @@ local function add_highlights(state, lines)
 			vim.api.nvim_buf_add_highlight(state.buf, ns, "AnkiReviewSection", row, 0, -1)
 		elseif line:match("^Deck:") or line:match("^Review complete") then
 			vim.api.nvim_buf_add_highlight(state.buf, ns, "AnkiReviewTitle", row, 0, -1)
-		elseif line:match("^Due:") or line:match("^Answered:") or line:match("^Again:") then
+		elseif
+			line:match("^Due:")
+			or line:match("^Answered:")
+			or line:match("^Again:")
+			or line:match("^XP gained:")
+			or line:match("^Gamification disabled")
+		then
 			vim.api.nvim_buf_add_highlight(state.buf, ns, "AnkiReviewProgress", row, 0, -1)
+		elseif line:match("^%+") then
+			vim.api.nvim_buf_add_highlight(state.buf, ns, "AnkiReviewGamificationPopup", row, 0, -1)
 		elseif line:match("Reveal answer") or line:match("Keys:") or line:match("Aliases:") or line:match("Nav:") then
 			vim.api.nvim_buf_add_highlight(state.buf, ns, "AnkiReviewHint", row, 0, -1)
 		end
@@ -261,6 +293,16 @@ function M.open(state, callbacks)
 		end, opts)
 	end
 	vim.keymap.set("n", "q", callbacks.close, opts)
+	vim.keymap.set("n", "r", function()
+		if state.complete and callbacks.review_again then
+			callbacks.review_again()
+		end
+	end, opts)
+	vim.keymap.set("n", "h", function()
+		if state.complete and callbacks.home then
+			callbacks.home()
+		end
+	end, opts)
 
 	state.augroup = vim.api.nvim_create_augroup(augroup_name, { clear = true })
 	state.autocmds = {}
@@ -330,12 +372,7 @@ function M.render(state)
 	if state.error then
 		lines = { "Error", "", tostring(state.error), "", "Press q to close." }
 	elseif state.complete then
-		lines = {
-			"Review complete!",
-			"",
-			'No more cards to review in "' .. (state.deck or "") .. '".',
-			"",
-		}
+		lines = { "Review complete", "", 'No more cards to review in "' .. (state.deck or "") .. '".', "" }
 		local progress = progress_line(state.progress)
 		if progress then
 			table.insert(lines, progress)
@@ -345,7 +382,7 @@ function M.render(state)
 			table.insert(lines, line)
 		end
 		table.insert(lines, "")
-		table.insert(lines, "Press q to close.")
+		table.insert(lines, "q close · r review again · h dashboard")
 	else
 		local elapsed = os.time() - (state.started_at or os.time())
 		local deck_label = "Deck: " .. (state.deck or "")
@@ -359,6 +396,12 @@ function M.render(state)
 			table.insert(lines, progress)
 		end
 		table.insert(lines, "State: " .. (state.showing_answer and "Answer" or "Question"))
+		if state.gamification_feedback and (not state.gamification_feedback_until or os.time() <= state.gamification_feedback_until) then
+			table.insert(lines, state.gamification_feedback)
+		else
+			state.gamification_feedback = nil
+			state.gamification_feedback_until = nil
+		end
 		table.insert(lines, "")
 		mark_section("question")
 		table.insert(lines, "QUESTION")

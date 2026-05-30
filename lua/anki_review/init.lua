@@ -61,4 +61,11 @@ function M.home()
 	})
 end
 
+function M.stats()
+	require("anki_review.dashboard").open({
+		pick_deck = pick_deck,
+		start_last = M.start_last,
+	}, { view = "stats" })
+end
+
 return M
