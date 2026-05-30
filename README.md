@@ -180,7 +180,7 @@ single-command aliases. Use `deck` when a deck name collides with a built-in ali
 :AnkiReviewHome
 ```
 
-opens the cave dashboard: last deck, Anki status, today's reviews, XP, streak, and a tiny activity strip.
+opens the cave dashboard: last deck, Anki status, local reviews, XP, streak, and a tiny activity strip.
 
 ```vim
 :AnkiReviewStats
@@ -194,16 +194,25 @@ opens the dashboard directly in stats view.
 
 `:AnkiReviewHome` is a Neovim-native dashboard made from text, Unicode, floating windows, and highlight groups.
 
+Anki remains the source for decks, review actions, scheduling, and collection
+history. XP, streaks, and local activity are `anki.nvim` motivation stats stored
+in Neovim state.
+
 It shows:
 
-- level and XP progress
-- current and best streak
-- today's cards, answer mix, review time, and XP
+- local level and XP progress
+- local current and best streak
+- today's local `anki.nvim` cards, answer mix, review time, and XP
 - last deck
-- AnkiConnect status
-- due summary when known
-- 7-day local activity strip
+- AnkiConnect status from Anki
+- due summary from Anki when refreshed and available
+- 7-day local `anki.nvim` activity strip
+- Anki stats placeholders for future collection-backed stats
 - actions for picker, last deck, stats, refresh, help, quit
+
+Local activity means reviews answered through `anki.nvim`. It is not full Anki
+history. Anki stats means real collection data; for now only due summary is
+queried, and future due / review history are placeholders.
 
 Dashboard keys:
 
@@ -229,7 +238,8 @@ Opening the dashboard does not require Anki to be running. Status starts as `unk
 stdpath("state")/anki_review/gamification.json
 ```
 
-Anki still owns scheduling. The plugin only tracks local XP, streaks, and dashboard stats for motivation.
+Anki still owns scheduling. The plugin only tracks local XP, streaks, and
+`anki.nvim` activity for motivation.
 
 XP defaults:
 
@@ -295,6 +305,10 @@ Completion keys:
 ## external add-ons
 
 `anki.nvim` answers cards through AnkiConnect, so reviews are still recorded by Anki itself. Stats/history add-ons may see those normal Anki reviews.
+
+Anki, Onigiri, Review Heatmap, or other tools may show older reviews that
+`anki.nvim` does not know about. Local activity only covers reviews answered
+through this plugin after local tracking exists.
 
 Visual add-ons that modify Anki's reviewer UI, card webview, buttons, colors, or keyboard shortcuts are not rendered inside the Neovim floating window.
 

@@ -431,9 +431,91 @@ test("dashboard render lines handle empty state", function()
 	local config = require("anki_review.config")
 	config.setup()
 	local dashboard = require("anki_review.dashboard")
-	local lines = dashboard._render_lines({ gamification = require("anki_review.gamification").default_state() })
+	local lines = dashboard._render_lines({
+		gamification = require("anki_review.gamification").default_state(),
+		status = "unknown",
+		status_reason = "not queried yet",
+		due = "unknown",
+		due_reason = "press R to query Anki",
+		last_deck = "Japanese::Core",
+	})
+	local rendered = table.concat(lines, "\n")
 	assert_true(#lines > 0, "empty dashboard")
-	assert_true(table.concat(lines, "\n"):find("Level", 1, true), "missing level")
+	assert_true(rendered:find("Local Level", 1, true), "missing local level")
+	assert_true(rendered:find("Today (local)", 1, true), "missing local today label")
+	assert_true(rendered:find("Local activity", 1, true), "missing local activity label")
+	assert_true(rendered:find("local plugin stats, not full Anki history", 1, true), "missing local stats disclaimer")
+	assert_true(rendered:find("Anki", 1, true), "missing compact Anki label")
+	assert_true(rendered:find("Status unknown (not queried yet)", 1, true), "missing status unknown reason")
+	assert_true(rendered:find("Due unknown (press R to query Anki)", 1, true), "missing due unknown reason")
+	assert_true(not rendered:find("╭", 1, true), "dashboard content draws inner top border")
+	assert_true(not rendered:find("│", 1, true), "dashboard content draws inner side border")
+	assert_true(not rendered:find("╰", 1, true), "dashboard content draws inner bottom border")
+	assert_true(not rendered:find("Future due: unknown", 1, true), "home should not show full Anki placeholder")
+	assert_true(not rendered:find("Review history: not implemented yet", 1, true), "home should not show history placeholder")
+end)
+
+test("dashboard view switch resets scroll", function()
+	local config = require("anki_review.config")
+	local dashboard = require("anki_review.dashboard")
+	config.setup({ dashboard = { height = 0.35 } })
+	dashboard.open({}, { view = "stats" })
+	local win = vim.api.nvim_get_current_win()
+	vim.api.nvim_win_call(win, function()
+		vim.cmd("normal! G")
+	end)
+	local before
+	vim.api.nvim_win_call(win, function()
+		before = vim.fn.line("w0")
+	end)
+	assert_true(before > 1, "stats view did not scroll")
+	vim.api.nvim_feedkeys("h", "xt", false)
+	local after
+	vim.api.nvim_win_call(win, function()
+		after = vim.fn.line("w0")
+	end)
+	eq(after, 1)
+	vim.api.nvim_win_close(win, true)
+	config.setup()
+end)
+
+test("stats view separates local and Anki stats", function()
+	local dashboard = require("anki_review.dashboard")
+	local lines = dashboard._render_stats_lines({
+		gamification = require("anki_review.gamification").default_state(),
+		status = "connected v6",
+		due = "82",
+		last_deck = "Japanese::Core",
+	})
+	local rendered = table.concat(lines, "\n")
+	assert_true(rendered:find("Local activity", 1, true), "missing local activity")
+	assert_true(rendered:find("local plugin stats, not full Anki history", 1, true), "missing local disclaimer")
+	assert_true(rendered:find("Anki stats", 1, true), "missing Anki stats")
+	assert_true(rendered:find("Due summary: 82", 1, true), "missing Anki due")
+	assert_true(rendered:find("Future due: not implemented yet", 1, true), "missing future due")
+	assert_true(rendered:find("Review history: not implemented yet", 1, true), "missing history placeholder")
+end)
+
+test("dashboard refresh gets due from Anki", function()
+	local config = require("anki_review.config")
+	local dashboard = require("anki_review.dashboard")
+	config.setup({ timeout = 5000 })
+	with_anki_stubs({
+		version = function()
+			return 6, nil
+		end,
+		deck_stats = function(deck)
+			eq(deck, "Japanese::Core")
+			return { review_count = 82 }, nil
+		end,
+	}, function()
+		local state = { status = "unknown", due = "unknown", last_deck = "Japanese::Core" }
+		dashboard._refresh_status(state)
+		eq(state.status, "connected v6")
+		eq(state.due, "82")
+		eq(config.get().anki.timeout, 5000)
+	end)
+	config.setup()
 end)
 
 test("dashboard render handles disabled gamification", function()
