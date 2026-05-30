@@ -11,7 +11,7 @@ local defaults = {
 		min_height = 18,
 		max_height = 34,
 	},
-	remember_last_deck = true,
+	remember_last_deck = false,
 	default_ease = 3,
 }
 

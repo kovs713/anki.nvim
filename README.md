@@ -61,7 +61,7 @@ anki must be open. AnkiConnect must listen on `http://127.0.0.1:8765`.
 require("anki_review").setup({
   endpoint = "http://127.0.0.1:8765",
   timeout = 5000,
-  remember_last_deck = true,
+  remember_last_deck = false,
   default_ease = 3,
   window = {
     width = 0.72,
