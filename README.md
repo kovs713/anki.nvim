@@ -194,25 +194,18 @@ opens the dashboard directly in stats view.
 
 `:AnkiReviewHome` is a Neovim-native dashboard made from text, Unicode, floating windows, and highlight groups.
 
-Anki remains the source for decks, review actions, scheduling, and collection
-history. XP, streaks, and local activity are `anki.nvim` motivation stats stored
-in Neovim state.
+Two views:
 
-It shows:
+**Dashboard view** — compact overview with two sections:
 
-- local level and XP progress
-- local current and best streak
-- today's local `anki.nvim` cards, answer mix, review time, and XP
-- last deck
-- AnkiConnect status from Anki
-- due summary from Anki when refreshed and available
-- 7-day local `anki.nvim` activity strip
-- Anki stats placeholders for future collection-backed stats
-- actions for picker, last deck, stats, refresh, help, quit
+- **Local progress** — XP, level, streak, today's cards, activity strip. Gamification tracked by `anki.nvim`.
+- **Anki collection** — AnkiConnect status, last deck, due summary (New/Learn/Review), future due counts.
 
-Local activity means reviews answered through `anki.nvim`. It is not full Anki
-history. Anki stats means real collection data; for now only due summary is
-queried, and future due / review history are placeholders.
+**Stats view** — detailed breakdown of local progress (totals, answer breakdown, last 7 days activity) and Anki collection data (status, due, future, review history).
+
+Future due uses Anki search `findCards` when refreshed via `R`. Full Anki review history chart is not implemented yet.
+
+Dashboard keys:
 
 Dashboard keys:
 

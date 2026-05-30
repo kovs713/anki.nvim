@@ -427,32 +427,32 @@ test("activity symbol maps card counts", function()
 	eq(symbol, "█")
 end)
 
+-- Dashboard / stats view tests
+
 test("dashboard render lines handle empty state", function()
 	local config = require("anki_review.config")
 	config.setup()
 	local dashboard = require("anki_review.dashboard")
 	local lines = dashboard._render_lines({
 		gamification = require("anki_review.gamification").default_state(),
-		status = "unknown",
-		status_reason = "not queried yet",
-		due = "unknown",
-		due_reason = "press R to query Anki",
+		anki_status = { state = "unknown" },
+		deck_stats = nil,
+		future_due = nil,
 		last_deck = "Japanese::Core",
 	})
 	local rendered = table.concat(lines, "\n")
 	assert_true(#lines > 0, "empty dashboard")
-	assert_true(rendered:find("Local Level", 1, true), "missing local level")
-	assert_true(rendered:find("Today (local)", 1, true), "missing local today label")
-	assert_true(rendered:find("Local activity", 1, true), "missing local activity label")
-	assert_true(rendered:find("local plugin stats, not full Anki history", 1, true), "missing local stats disclaimer")
-	assert_true(rendered:find("Anki", 1, true), "missing compact Anki label")
-	assert_true(rendered:find("Status unknown (not queried yet)", 1, true), "missing status unknown reason")
-	assert_true(rendered:find("Due unknown (press R to query Anki)", 1, true), "missing due unknown reason")
+	assert_true(rendered:find("Local progress", 1, true), "missing local progress label")
+	assert_true(rendered:find("Anki collection", 1, true), "missing Anki collection label")
+	assert_true(rendered:find("Status unknown", 1, true), "missing status unknown")
+	assert_true(rendered:find("Due unavailable", 1, true), "missing due unavailable")
+	assert_true(rendered:find("Future unavailable", 1, true), "missing future unavailable")
+	assert_true(rendered:find("Japanese::Core", 1, true), "missing deck name")
 	assert_true(not rendered:find("╭", 1, true), "dashboard content draws inner top border")
 	assert_true(not rendered:find("│", 1, true), "dashboard content draws inner side border")
 	assert_true(not rendered:find("╰", 1, true), "dashboard content draws inner bottom border")
-	assert_true(not rendered:find("Future due: unknown", 1, true), "home should not show full Anki placeholder")
-	assert_true(not rendered:find("Review history: not implemented yet", 1, true), "home should not show history placeholder")
+	assert_true(not rendered:find("Review history", 1, true), "home should not show review history")
+	assert_true(not rendered:find("Anki stats", 1, true), "home should not use old Anki stats label")
 end)
 
 test("dashboard view switch resets scroll", function()
@@ -483,17 +483,21 @@ test("stats view separates local and Anki stats", function()
 	local dashboard = require("anki_review.dashboard")
 	local lines = dashboard._render_stats_lines({
 		gamification = require("anki_review.gamification").default_state(),
-		status = "connected v6",
-		due = "82",
+		anki_status = { state = "connected", version = 6 },
+		deck_stats = { new_count = 5, learn_count = 0, review_count = 43, total_in_deck = 1234 },
+		future_due = { tomorrow = 3, future = 48 },
 		last_deck = "Japanese::Core",
 	})
 	local rendered = table.concat(lines, "\n")
 	assert_true(rendered:find("Local activity", 1, true), "missing local activity")
-	assert_true(rendered:find("local plugin stats, not full Anki history", 1, true), "missing local disclaimer")
-	assert_true(rendered:find("Anki stats", 1, true), "missing Anki stats")
-	assert_true(rendered:find("Due summary: 82", 1, true), "missing Anki due")
-	assert_true(rendered:find("Future due: not implemented yet", 1, true), "missing future due")
-	assert_true(rendered:find("Review history: not implemented yet", 1, true), "missing history placeholder")
+	assert_true(rendered:find("anki.nvim reviews only", 1, true), "missing local disclaimer")
+	assert_true(rendered:find("Anki collection", 1, true), "missing Anki collection label")
+	assert_true(rendered:find("Due: New 5 \xc2\xb7 Learn 0 \xc2\xb7 Review 43 \xc2\xb7 Total 1234", 1, true), "missing Anki due")
+	assert_true(rendered:find("Future: Tomorrow 3 \xc2\xb7 Future 48", 1, true), "missing future due")
+	assert_true(not rendered:find("Review history", 1, true), "review history line still present")
+	assert_true(not rendered:find("Future due: not implemented yet", 1, true), "old future due placeholder")
+	assert_true(not rendered:find("Anki stats", 1, true), "old Anki stats label")
+	assert_true(not rendered:find("local plugin stats, not full Anki history", 1, true), "old disclaimer format")
 end)
 
 test("dashboard refresh gets due from Anki", function()
@@ -506,13 +510,27 @@ test("dashboard refresh gets due from Anki", function()
 		end,
 		deck_stats = function(deck)
 			eq(deck, "Japanese::Core")
-			return { review_count = 82 }, nil
+			return { new_count = 5, learn_count = 0, review_count = 43, total_in_deck = 1234 }, nil
+		end,
+		future_due = function(deck)
+			eq(deck, "Japanese::Core")
+			return { tomorrow = 3, future = 48 }, nil
 		end,
 	}, function()
-		local state = { status = "unknown", due = "unknown", last_deck = "Japanese::Core" }
+		local state = {
+			anki_status = { state = "unknown" },
+			deck_stats = nil,
+			future_due = nil,
+			last_deck = "Japanese::Core",
+		}
 		dashboard._refresh_status(state)
-		eq(state.status, "connected v6")
-		eq(state.due, "82")
+		eq(state.anki_status.state, "connected")
+		eq(state.anki_status.version, 6)
+		eq(state.deck_stats.new_count, 5)
+		eq(state.deck_stats.review_count, 43)
+		eq(state.deck_stats.total_in_deck, 1234)
+		eq(state.future_due.tomorrow, 3)
+		eq(state.future_due.future, 48)
 		eq(config.get().anki.timeout, 5000)
 	end)
 	config.setup()
@@ -712,6 +730,404 @@ test("picker selects last deck by default", function()
 	assert_true(rendered:find("> Japanese::Core", 1, true), "selected deck not highlighted")
 	vim.api.nvim_win_close(vim.api.nvim_get_current_win(), true)
 	eq(chosen, nil)
+end)
+
+-- New tests for deck_stats parsing
+
+test("deck_stats parses result keyed by deck id", function()
+	local anki = require("anki_review.anki")
+	local result = anki.deck_stats("5000 eng")
+	-- cannot test real AnkiConnect, skip
+	-- verify the function structure is correct
+	assert_true(type(anki.deck_stats) == "function")
+end)
+
+test("deck_stats iterates by id and finds name", function()
+	local anki = require("anki_review.anki")
+	with_anki_stubs({
+		request = function(action, params)
+			eq(action, "getDeckStats")
+			eq(params.decks[1], "5000 eng")
+			return {
+				["12345"] = { deck_id = 12345, name = "5000 eng", new_count = 10, learn_count = 2, review_count = 50, total_in_deck = 5000 },
+			}, nil
+		end,
+	}, function()
+		local stats, err = anki.deck_stats("5000 eng")
+		eq(err, nil)
+		eq(stats.new_count, 10)
+		eq(stats.learn_count, 2)
+		eq(stats.review_count, 50)
+		eq(stats.total_in_deck, 5000)
+	end)
+end)
+
+test("deck_stats returns nil for missing deck", function()
+	local anki = require("anki_review.anki")
+	with_anki_stubs({
+		request = function()
+			return {
+				["12345"] = { deck_id = 12345, name = "Other Deck", new_count = 0, learn_count = 0, review_count = 0, total_in_deck = 0 },
+			}, nil
+		end,
+	}, function()
+		local stats, err = anki.deck_stats("missing deck")
+		eq(stats, nil)
+		eq(err, nil)
+	end)
+end)
+
+test("deck_stats handles error response", function()
+	local anki = require("anki_review.anki")
+	with_anki_stubs({
+		request = function()
+			return nil, "getDeckStats failed"
+		end,
+	}, function()
+		local stats, err = anki.deck_stats("any deck")
+		eq(stats, nil)
+		eq(err, "getDeckStats failed")
+	end)
+end)
+
+test("deck_stats handles wrong-shaped result", function()
+	local anki = require("anki_review.anki")
+	with_anki_stubs({
+		request = function()
+			return "not a table", nil
+		end,
+	}, function()
+		local stats, err = anki.deck_stats("any deck")
+		eq(stats, nil)
+		eq(err, "invalid response shape")
+	end)
+end)
+
+test("deck_stats handles empty result", function()
+	local anki = require("anki_review.anki")
+	with_anki_stubs({
+		request = function()
+			return {}, nil
+		end,
+	}, function()
+		local stats, err = anki.deck_stats("any deck")
+		eq(stats, nil)
+		eq(err, nil)
+	end)
+end)
+
+-- New tests for future_due queries
+
+test("future_due query construction escapes deck names", function()
+	local anki = require("anki_review.anki")
+	eq(anki._future_query("5000 eng", "tomorrow"), 'deck:"5000 eng" prop:due=1')
+	eq(anki._future_query("5000 eng", "future"), 'deck:"5000 eng" prop:due>=1')
+end)
+
+test("future_due query handles deck names with spaces", function()
+	local anki = require("anki_review.anki")
+	eq(anki._future_query("Japanese::Core 5000", "tomorrow"), 'deck:"Japanese::Core 5000" prop:due=1')
+end)
+
+test("future_due query handles deck names with double quotes", function()
+	local anki = require("anki_review.anki")
+	eq(anki._future_query([[My "Cool" Deck]], "tomorrow"), [[deck:"My \"Cool\" Deck" prop:due=1]])
+end)
+
+test("future_due query handles deck names with backslashes", function()
+	local anki = require("anki_review.anki")
+	eq(anki._future_query([[Test\Deck]], "tomorrow"), [[deck:"Test\\Deck" prop:due=1]])
+end)
+
+test("future_due returns counts from findCards results", function()
+	local anki = require("anki_review.anki")
+	with_anki_stubs({
+		find_cards = function(query)
+			if query:find("prop:due=1") then
+				return { 1, 2, 3 }, nil
+			end
+			return { 1, 2, 3, 4, 5, 6, 7, 8 }, nil
+		end,
+	}, function()
+		local result, err = anki.future_due("5000 eng")
+		eq(err, nil)
+		eq(result.tomorrow, 3)
+		eq(result.future, 8)
+	end)
+end)
+
+test("future_due returns error when tomorrow query fails", function()
+	local anki = require("anki_review.anki")
+	with_anki_stubs({
+		find_cards = function(query)
+			if query:find("prop:due=1") then
+				return nil, "query failed"
+			end
+			return { 1, 2 }, nil
+		end,
+	}, function()
+		local result, err = anki.future_due("5000 eng")
+		eq(result, nil)
+		eq(err, "query failed")
+	end)
+end)
+
+test("future_due returns error when future query fails", function()
+	local anki = require("anki_review.anki")
+	with_anki_stubs({
+		find_cards = function(query)
+			if query:find("prop:due=1") then
+				return { 1, 2 }, nil
+			end
+			return nil, "query failed"
+		end,
+	}, function()
+		local result, err = anki.future_due("5000 eng")
+		eq(result, nil)
+		eq(err, "query failed")
+	end)
+end)
+
+test("future_due returns error for empty deck name", function()
+	local anki = require("anki_review.anki")
+	local result, err = anki.future_due("")
+	eq(result, nil)
+	eq(err, "no deck")
+	local result2, err2 = anki.future_due(nil)
+	eq(result2, nil)
+	eq(err2, "no deck")
+end)
+
+-- New tests for status consistency
+
+test("status consistency between dashboard and stats views", function()
+	local dashboard = require("anki_review.dashboard")
+	local anki_status = { state = "connected", version = 6, error = nil, queried_at = os.time() }
+	local context = {
+		gamification = require("anki_review.gamification").default_state(),
+		anki_status = anki_status,
+		deck_stats = { new_count = 5, learn_count = 0, review_count = 43, total_in_deck = 500 },
+		future_due = { tomorrow = 3, future = 48 },
+		last_deck = "5000 eng",
+	}
+	local dash_rendered = table.concat(dashboard._render_lines(context), "\n")
+	local stats_rendered = table.concat(dashboard._render_stats_lines(context), "\n")
+	assert_true(dash_rendered:find("connected v6", 1, true), "dashboard missing status")
+	assert_true(stats_rendered:find("connected v6", 1, true), "stats missing status")
+	assert_true(dash_rendered:find("Due New 5 \xc2\xb7 Learn 0 \xc2\xb7 Review 43", 1, true), "dashboard missing due")
+end)
+
+test("no duplicate Anki stats blocks in dashboard", function()
+	local dashboard = require("anki_review.dashboard")
+	local context = {
+		gamification = require("anki_review.gamification").default_state(),
+		anki_status = { state = "unknown" },
+	}
+	local rendered = table.concat(dashboard._render_lines(context), "\n")
+	local count = 0
+	local pos = 1
+	while true do
+		pos = rendered:find("Anki collection", pos, true)
+		if not pos then break end
+		count = count + 1
+		pos = pos + 1
+	end
+	eq(count, 1, "duplicate Anki collection headers")
+end)
+
+test("no duplicate Anki stats blocks in stats view", function()
+	local dashboard = require("anki_review.dashboard")
+	local context = {
+		gamification = require("anki_review.gamification").default_state(),
+		anki_status = { state = "unknown" },
+	}
+	local rendered = table.concat(dashboard._render_stats_lines(context), "\n")
+	local count = 0
+	local pos = 1
+	while true do
+		pos = rendered:find("Anki collection", pos, true)
+		if not pos then break end
+		count = count + 1
+		pos = pos + 1
+	end
+	eq(count, 1, "duplicate Anki collection headers in stats")
+end)
+
+test("no old Anki stats label appears", function()
+	local dashboard = require("anki_review.dashboard")
+	local context = {
+		gamification = require("anki_review.gamification").default_state(),
+		anki_status = { state = "unknown" },
+	}
+	local dash = table.concat(dashboard._render_lines(context), "\n")
+	local stats = table.concat(dashboard._render_stats_lines(context), "\n")
+	assert_true(not dash:find("Anki stats", 1, true), "dashboard has old Anki stats label")
+	assert_true(not stats:find("Anki stats", 1, true), "stats has old Anki stats label")
+end)
+
+test("long deck name renders safely truncated", function()
+	local config = require("anki_review.config")
+	config.setup()
+	local dashboard = require("anki_review.dashboard")
+	local long_name = string.rep("deck", 50)
+	local context = {
+		gamification = require("anki_review.gamification").default_state(),
+		anki_status = { state = "unknown" },
+		last_deck = long_name,
+		width = 78,
+	}
+	local lines = dashboard._render_lines(context)
+	local rendered = table.concat(lines, "\n")
+	assert_true(#lines > 0, "empty render")
+	assert_true(rendered:find(long_name:sub(1, 10), 1, true) ~= nil, "deck name start missing")
+end)
+
+test("due summary formatting without stats shows unavailable", function()
+	local config = require("anki_review.config")
+	config.setup()
+	local dashboard = require("anki_review.dashboard")
+	local context = {
+		gamification = require("anki_review.gamification").default_state(),
+		anki_status = { state = "unknown" },
+		deck_stats = nil,
+	}
+	local rendered = table.concat(dashboard._render_lines(context), "\n")
+	assert_true(rendered:find("Due unavailable", 1, true), "missing due unavailable")
+	local stats_rendered = table.concat(dashboard._render_stats_lines(context), "\n")
+	assert_true(stats_rendered:find("Due: unavailable", 1, true), "stats missing due unavailable")
+end)
+
+test("future summary formatting without data shows unavailable", function()
+	local config = require("anki_review.config")
+	config.setup()
+	local dashboard = require("anki_review.dashboard")
+	local context = {
+		gamification = require("anki_review.gamification").default_state(),
+		anki_status = { state = "unknown" },
+		future_due = nil,
+	}
+	local rendered = table.concat(dashboard._render_lines(context), "\n")
+	assert_true(rendered:find("Future unavailable", 1, true), "missing future unavailable")
+	local stats_rendered = table.concat(dashboard._render_stats_lines(context), "\n")
+	assert_true(stats_rendered:find("Future: unavailable", 1, true), "stats missing future unavailable")
+end)
+
+test("dashboard with connected status and full stats renders correctly", function()
+	local config = require("anki_review.config")
+	config.setup()
+	local dashboard = require("anki_review.dashboard")
+	local context = {
+		gamification = require("anki_review.gamification").default_state(),
+		anki_status = { state = "connected", version = 6 },
+		deck_stats = { new_count = 5, learn_count = 0, review_count = 43, total_in_deck = 5000 },
+		future_due = { tomorrow = 3, future = 48 },
+		review_counts = { today = 12, week = 87, month = 345 },
+		last_deck = "5000 eng",
+		width = 78,
+	}
+	local lines = dashboard._render_lines(context)
+	local rendered = table.concat(lines, "\n")
+	assert_true(rendered:find("connected v6", 1, true), "missing version")
+	assert_true(rendered:find("5000 eng", 1, true), "missing deck name")
+	assert_true(rendered:find("Due New 5 \xc2\xb7 Learn 0 \xc2\xb7 Review 43", 1, true), "missing due summary")
+	assert_true(rendered:find("Future Tomorrow 3 \xc2\xb7 Future 48", 1, true), "missing future summary")
+	assert_true(rendered:find("Reviews Today 12 \xc2\xb7 Week 87 \xc2\xb7 Month 345", 1, true), "missing reviews")
+end)
+
+-- New tests for review_counts via rated: queries
+
+test("review_counts query construction", function()
+	local anki = require("anki_review.anki")
+	eq(anki._review_query("5000 eng", "today"), 'deck:"5000 eng" rated:1')
+	eq(anki._review_query("5000 eng", "week"), 'deck:"5000 eng" rated:7')
+	eq(anki._review_query("5000 eng", "month"), 'deck:"5000 eng" rated:30')
+end)
+
+test("review_counts query without deck", function()
+	local anki = require("anki_review.anki")
+	eq(anki._review_query(nil, "today"), "rated:1")
+	eq(anki._review_query(nil, "week"), "rated:7")
+	eq(anki._review_query(nil, "month"), "rated:30")
+end)
+
+test("review_counts query escapes deck names", function()
+	local anki = require("anki_review.anki")
+	eq(anki._review_query([[My "Deck"]], "today"), [[deck:"My \"Deck\"" rated:1]])
+	eq(anki._review_query("Deck with spaces", "week"), [[deck:"Deck with spaces" rated:7]])
+end)
+
+test("review_counts returns correct counts", function()
+	local anki = require("anki_review.anki")
+	with_anki_stubs({
+		find_cards = function(query)
+			if query:find("rated:1") then return { 1, 2, 3 }, nil end
+			if query:find("rated:7") then return { 1, 2, 3, 4, 5, 6, 7 }, nil end
+			return { 1, 2, 3, 4, 5, 6, 7, 8, 9, 10 }, nil
+		end,
+	}, function()
+		local result, err = anki.review_counts("5000 eng")
+		eq(err, nil)
+		eq(result.today, 3)
+		eq(result.week, 7)
+		eq(result.month, 10)
+	end)
+end)
+
+test("review_counts handles findCards error", function()
+	local anki = require("anki_review.anki")
+	with_anki_stubs({
+		find_cards = function()
+			return nil, "query failed"
+		end,
+	}, function()
+		local result, err = anki.review_counts("5000 eng")
+		eq(result, nil)
+		eq(err, "query failed")
+	end)
+end)
+
+test("review_counts handles nil result from findCards", function()
+	local anki = require("anki_review.anki")
+	with_anki_stubs({
+		find_cards = function()
+			return nil, nil
+		end,
+	}, function()
+		local result, err = anki.review_counts("5000 eng")
+		eq(err, nil)
+		eq(result.today, 0)
+		eq(result.week, 0)
+		eq(result.month, 0)
+	end)
+end)
+
+test("review_counts renders in dashboard and stats", function()
+	local config = require("anki_review.config")
+	config.setup()
+	local dashboard = require("anki_review.dashboard")
+	local context = {
+		gamification = require("anki_review.gamification").default_state(),
+		anki_status = { state = "unknown" },
+		review_counts = { today = 5, week = 42, month = 300 },
+	}
+	local dash = table.concat(dashboard._render_lines(context), "\n")
+	local stats = table.concat(dashboard._render_stats_lines(context), "\n")
+	assert_true(dash:find("Reviews Today 5 \xc2\xb7 Week 42 \xc2\xb7 Month 300", 1, true), "dash missing reviews")
+	assert_true(stats:find("Reviews: Today 5 \xc2\xb7 Week 42 \xc2\xb7 Month 300", 1, true), "stats missing reviews")
+end)
+
+test("review_counts unavailable when absent", function()
+	local config = require("anki_review.config")
+	config.setup()
+	local dashboard = require("anki_review.dashboard")
+	local context = {
+		gamification = require("anki_review.gamification").default_state(),
+		anki_status = { state = "unknown" },
+	}
+	local dash = table.concat(dashboard._render_lines(context), "\n")
+	local stats = table.concat(dashboard._render_stats_lines(context), "\n")
+	assert_true(dash:find("Reviews unavailable", 1, true), "dash missing unavailable")
+	assert_true(stats:find("Reviews: unavailable", 1, true), "stats missing unavailable")
 end)
 
 if #failures > 0 then

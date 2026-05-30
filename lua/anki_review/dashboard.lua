@@ -63,14 +63,6 @@ local function bar(current, total, width)
 	return string.rep("█", filled) .. string.rep("░", width - filled)
 end
 
-local function with_reason(value, reason)
-	value = tostring(value or "unknown")
-	if value == "unknown" and reason and reason ~= "" then
-		return value .. " (" .. reason .. ")"
-	end
-	return value
-end
-
 local function day_name(date)
 	local year, month, day = date:match("^(%d%d%d%d)%-(%d%d)%-(%d%d)$")
 	if not year then
@@ -109,6 +101,69 @@ local function fit_lines(lines, width)
 	return output
 end
 
+local function status_label(status)
+	if not status or status.state == "unknown" then
+		return "unknown"
+	end
+	if status.state == "connected" then
+		return "connected v" .. tostring(status.version or "?")
+	end
+	if status.state == "offline" then
+		return "offline"
+	end
+	return status.state
+end
+
+local function due_summary(stats)
+	if not stats then
+		return "unavailable"
+	end
+	return string.format(
+		"New %d \xc2\xb7 Learn %d \xc2\xb7 Review %d \xc2\xb7 Total %d",
+		stats.new_count or 0,
+		stats.learn_count or 0,
+		stats.review_count or 0,
+		stats.total_in_deck or 0
+	)
+end
+
+-- dashboard compact due (no Total)
+local function due_compact(stats)
+	if not stats then
+		return "unavailable"
+	end
+	return string.format(
+		"New %d \xc2\xb7 Learn %d \xc2\xb7 Review %d",
+		stats.new_count or 0,
+		stats.learn_count or 0,
+		stats.review_count or 0
+	)
+end
+
+local function future_summary(future)
+	if not future then
+		return "unavailable"
+	end
+	return string.format(
+		"Tomorrow %d \xc2\xb7 Future %d",
+		future.tomorrow or 0,
+		future.future or 0
+	)
+end
+
+local function reviews_summary(reviews)
+	if not reviews then
+		return "unavailable"
+	end
+	return string.format(
+		"Today %d \xc2\xb7 Week %d \xc2\xb7 Month %d",
+		reviews.today or 0,
+		reviews.week or 0,
+		reviews.month or 0
+	)
+end
+
+-- Dashboard view: compact overview
 local function dashboard_lines(context)
 	context = context or {}
 	local opts = config.get()
@@ -118,11 +173,10 @@ local function dashboard_lines(context)
 	local today_data = today_stats(game, today)
 	local progress = gamification.level_progress(game.xp)
 	local last_deck = context.last_deck
-	if last_deck == nil then
-		last_deck = persisted.last_deck()
-	end
-	local status = with_reason(context.status or "unknown", context.status_reason)
-	local due = with_reason(context.due or "unknown", context.due_reason)
+	local status = context.anki_status or { state = "unknown" }
+	local stats = context.deck_stats
+	local future = context.future_due
+	local reviews = context.review_counts
 	local activity_days = math.max(1, tonumber((opts.dashboard or {}).activity_days) or 7)
 	local activity = gamification.activity_strip(game, activity_days, today)
 	local day_labels = {}
@@ -138,103 +192,106 @@ local function dashboard_lines(context)
 		"",
 	}
 
+	table.insert(lines, "Local progress")
 	if game_enabled then
 		table.insert(
 			lines,
 			string.format(
-				"Local Level %d        XP %d / %d        Streak %d days        Best %d",
+				"Level %d        XP %d / %d",
 				progress.current_level,
 				progress.xp_into_level,
-				progress.xp_needed_for_next_level,
-				game.streak.current or 0,
-				game.streak.best or 0
+				progress.xp_needed_for_next_level
 			)
 		)
-		table.insert(lines, bar(progress.xp_into_level, progress.xp_needed_for_next_level, 32))
+		table.insert(lines, bar(progress.xp_into_level, progress.xp_needed_for_next_level, 28))
+		table.insert(
+			lines,
+			string.format(
+				"Streak %d       Today %d cards \xc2\xb7 %d XP",
+				game.streak.current or 0,
+				today_data.cards or 0,
+				today_data.xp or 0
+			)
+		)
+		table.insert(lines, "  " .. table.concat(day_labels, " "))
+		table.insert(lines, "Activity " .. table.concat(symbols, " "))
 	else
 		table.insert(lines, "Gamification disabled")
 		table.insert(lines, "Local XP, streaks, and activity tracking are off.")
 	end
 
 	table.insert(lines, "")
-	table.insert(lines, "Today (local)")
-	table.insert(
-		lines,
-		string.format(
-			"Cards %d       Good %d       Again %d       Time %s       XP +%d",
-			today_data.cards or 0,
-			today_data.good or 0,
-			today_data.again or 0,
-			format_time(today_data.review_seconds or 0),
-			today_data.xp or 0
-		)
-	)
-	table.insert(lines, "")
-	table.insert(lines, "Local activity")
-	table.insert(lines, "local plugin stats, not full Anki history")
-	table.insert(lines, table.concat(day_labels, "  "))
-	table.insert(lines, " " .. table.concat(symbols, "    "))
-	table.insert(lines, "")
-	table.insert(lines, "Anki")
-	table.insert(lines, "Status " .. status)
-	table.insert(lines, "Last deck " .. (last_deck or "none"))
-	table.insert(lines, "Due " .. due)
-	table.insert(lines, "")
-	table.insert(lines, "Actions")
-	table.insert(lines, "r/p deck picker    l last deck    s stats    ? help    R refresh    q quit")
-
-	if context.show_help then
-		table.insert(lines, "")
-		table.insert(lines, "Help")
-		table.insert(lines, "Anki owns scheduling through AnkiConnect; this dashboard tracks local motivation only.")
-		table.insert(lines, "No browser UI, add-on state, images, or Anki database writes are used.")
+	table.insert(lines, "Anki collection")
+	table.insert(lines, "Status " .. status_label(status))
+	if last_deck then
+		table.insert(lines, "Deck " .. last_deck)
 	end
-
+	table.insert(lines, "Due " .. due_compact(stats))
+	table.insert(lines, "Future " .. future_summary(future))
+	table.insert(lines, "Reviews " .. reviews_summary(reviews))
+	table.insert(lines, "")
+	table.insert(lines, "p pick deck    l last deck    s stats    R refresh    q quit")
 	return fit_lines(lines, context.width or 78)
 end
 
+-- Stats view: detailed
 local function stats_lines(context)
 	context = context or {}
 	local game = gamification._normalize_state(context.gamification or gamification.load())
 	local today = context.today or os.date("%Y-%m-%d")
 	local days = gamification.last_days(7, today)
-	local status = with_reason(context.status or "unknown", context.status_reason)
-	local due = with_reason(context.due or "unknown", context.due_reason)
+	local status = context.anki_status or { state = "unknown" }
+	local stats = context.deck_stats
+	local future = context.future_due
+	local reviews = context.review_counts
 	local last_deck = context.last_deck or "none"
 	local lines = {
 		"Session / Progress Stats",
-		"local plugin stats, not full Anki history",
 		"",
-		"Total cards answered: " .. tostring(game.totals.cards_answered or 0),
-		"Total XP: " .. tostring(game.xp or 0),
-		"Level: " .. tostring(game.level or gamification.level_for_xp(game.xp or 0)),
-		"Current streak: " .. tostring((game.streak and game.streak.current) or 0),
-		"Best streak: " .. tostring((game.streak and game.streak.best) or 0),
-		"Total review time: " .. format_time((game.totals and game.totals.review_seconds) or 0),
+		"Local progress",
+		string.format(
+			"XP: %d        Level: %d",
+			game.xp or 0,
+			game.level or gamification.level_for_xp(game.xp or 0)
+		),
+		string.format(
+			"Streak: %d    Best: %d",
+			(game.streak and game.streak.current) or 0,
+			(game.streak and game.streak.best) or 0
+		),
+		string.format(
+			"Cards: %d     Time: %s",
+			game.totals.cards_answered or 0,
+			format_time((game.totals and game.totals.review_seconds) or 0)
+		),
 		"",
-		"Answer breakdown:",
-		"Again " .. tostring(game.totals.again or 0),
-		"Hard  " .. tostring(game.totals.hard or 0),
-		"Good  " .. tostring(game.totals.good or 0),
-		"Easy  " .. tostring(game.totals.easy or 0),
+		"Answer breakdown",
+		string.format(
+			"Again %d   Hard %d   Good %d   Easy %d",
+			game.totals.again or 0,
+			game.totals.hard or 0,
+			game.totals.good or 0,
+			game.totals.easy or 0
+		),
 		"",
-		"Local activity:",
+		"Local activity  (* anki.nvim reviews only)",
 	}
 
 	for _, date in ipairs(days) do
 		local day = game.daily[date] or {}
-		table.insert(lines, string.format("%s  %d cards  %d XP", date, day.cards or 0, day.xp or 0))
+		local sym = gamification.activity_symbol(day.cards or 0)
+		table.insert(lines, string.format("%s  %s  %d cards   %d XP", date, sym, day.cards or 0, day.xp or 0))
 	end
 
 	table.insert(lines, "")
-	table.insert(lines, "Anki stats")
-	table.insert(lines, "Status: " .. status)
+	table.insert(lines, "Anki collection")
+	table.insert(lines, "Status: " .. status_label(status))
 	table.insert(lines, "Last deck: " .. last_deck)
-	table.insert(lines, "Due summary: " .. tostring(due))
-	table.insert(lines, "Future due: not implemented yet")
-	table.insert(lines, "Review history: not implemented yet")
+	table.insert(lines, "Due: " .. due_summary(stats))
+	table.insert(lines, "Future: " .. future_summary(future))
+	table.insert(lines, "Reviews: " .. reviews_summary(reviews))
 	table.insert(lines, "")
-	table.insert(lines, "h/<BS> dashboard    R refresh    q close")
+	table.insert(lines, "h dashboard    R refresh    q close")
 	return fit_lines(lines, context.width or 78)
 end
 
@@ -242,10 +299,10 @@ local function render_lines(state)
 	local context = {
 		gamification = state.gamification,
 		show_help = state.show_help,
-		status = state.status,
-		status_reason = state.status_reason,
-		due = state.due,
-		due_reason = state.due_reason,
+		anki_status = state.anki_status,
+		deck_stats = state.deck_stats,
+		future_due = state.future_due,
+		review_counts = state.review_counts,
 		last_deck = state.last_deck,
 		width = state.render_width,
 	}
@@ -264,13 +321,13 @@ local function add_highlights(state, lines)
 		elseif line:find("Flashcards without leaving the cave", 1, true) then
 			vim.api.nvim_buf_add_highlight(state.buf, ns, "AnkiReviewDashboardSubtitle", row, 0, -1)
 		elseif
-			line:match("Today")
-			or line:match("Anki stats")
-			or line:match("Local activity")
-			or line:match("Actions")
+			line:match("^Local progress$")
+			or line:match("^Anki collection$")
+			or line:match("^Answer breakdown$")
+			or line:match("^Local activity")
 		then
 			vim.api.nvim_buf_add_highlight(state.buf, ns, "AnkiReviewWidgetTitle", row, 0, -1)
-		elseif line:find("XP", 1, true) or line:find("Streak", 1, true) then
+		elseif line:find("Level", 1, true) or line:find("Streak", 1, true) or line:find("XP:", 1, true) then
 			vim.api.nvim_buf_add_highlight(state.buf, ns, "AnkiReviewWidgetValue", row, 0, -1)
 		elseif line:find("█", 1, true) or line:find("░", 1, true) then
 			vim.api.nvim_buf_add_highlight(state.buf, ns, "AnkiReviewXPBar", row, 0, -1)
@@ -285,7 +342,9 @@ local function render(state)
 		return
 	end
 	state.gamification = gamification.load()
-	state.last_deck = persisted.last_deck()
+	if state.last_deck == nil then
+		state.last_deck = persisted.last_deck()
+	end
 	local lines = render_lines(state)
 	vim.bo[state.buf].modifiable = true
 	vim.api.nvim_buf_set_lines(state.buf, 0, -1, false, lines)
@@ -310,34 +369,63 @@ local function close(state)
 end
 
 local function refresh_status(state)
-	state.status = "checking"
-	state.status_reason = nil
-	state.due = "unknown"
-	state.due_reason = "waiting for Anki status"
+	state.anki_status = {
+		state = "checking",
+		version = nil,
+		error = nil,
+		queried_at = os.time(),
+	}
+	state.deck_stats = nil
+	state.future_due = nil
+	state.review_counts = nil
 	render(state)
-	local old_timeout = config.get().anki.timeout
-	config.get().anki.timeout = math.min(old_timeout or 5000, 500)
+
+	if state.last_deck == nil then
+		state.last_deck = persisted.last_deck()
+	end
+
 	local ok, version, err = pcall(anki.version)
 	if not ok or err then
-		state.status = "offline"
-		state.due = "unknown"
-		state.due_reason = "AnkiConnect offline"
-	elseif not state.last_deck then
-		state.status = "connected v" .. tostring(version)
-		state.due = "unknown"
-		state.due_reason = "no last deck"
-	else
-		state.status = "connected v" .. tostring(version)
+		state.anki_status = {
+			state = "offline",
+			version = nil,
+			error = err,
+			queried_at = os.time(),
+		}
+		render(state)
+		return
+	end
+
+	state.anki_status = {
+		state = "connected",
+		version = version,
+		error = nil,
+		queried_at = os.time(),
+	}
+
+	if state.last_deck then
 		local stats_ok, stats, stats_err = pcall(anki.deck_stats, state.last_deck)
 		if stats_ok and not stats_err and stats then
-			state.due = tostring(stats.review_count or 0)
-			state.due_reason = nil
+			state.deck_stats = stats
 		else
-			state.due = "unknown"
-			state.due_reason = "getDeckStats failed"
+			state.deck_stats = nil
+		end
+
+		local future_ok, future, future_err = pcall(anki.future_due, state.last_deck)
+		if future_ok and not future_err and future then
+			state.future_due = future
+		else
+			state.future_due = nil
+		end
+
+		local rev_ok, rev, rev_err = pcall(anki.review_counts, state.last_deck)
+		if rev_ok and not rev_err and rev then
+			state.review_counts = rev
+		else
+			state.review_counts = nil
 		end
 	end
-	config.get().anki.timeout = old_timeout
+
 	render(state)
 end
 
@@ -347,13 +435,13 @@ function M.open(actions, opts)
 	require("anki_review.ui").setup_highlights()
 
 	local dims = size()
-	local state = {
+		local state = {
 		view = opts.view or "dashboard",
 		show_help = false,
-		status = "unknown",
-		status_reason = "not queried yet",
-		due = "unknown",
-		due_reason = nil,
+		anki_status = { state = "unknown", version = nil, error = nil, queried_at = nil },
+		deck_stats = nil,
+		future_due = nil,
+		review_counts = nil,
 		reset_view = true,
 		render_width = dims.width,
 		gamification = gamification.load(),
@@ -361,7 +449,6 @@ function M.open(actions, opts)
 		buf = vim.api.nvim_create_buf(false, true),
 		win = nil,
 	}
-	state.due_reason = state.last_deck and "press R to query Anki" or "no last deck"
 
 	vim.bo[state.buf].bufhidden = "wipe"
 	vim.bo[state.buf].filetype = "anki_review_dashboard"
@@ -395,14 +482,15 @@ function M.open(actions, opts)
 		end
 	end
 
-	vim.keymap.set("n", "r", pick, keymap_opts)
 	vim.keymap.set("n", "p", pick, keymap_opts)
-	vim.keymap.set("n", "l", function()
+	local function review_last()
 		close(state)
 		if actions.start_last then
 			actions.start_last()
 		end
-	end, keymap_opts)
+	end
+	vim.keymap.set("n", "r", review_last, keymap_opts)
+	vim.keymap.set("n", "l", review_last, keymap_opts)
 	vim.keymap.set("n", "s", function()
 		state.view = "stats"
 		state.reset_view = true
@@ -416,10 +504,6 @@ function M.open(actions, opts)
 	vim.keymap.set("n", "<BS>", function()
 		state.view = "dashboard"
 		state.reset_view = true
-		render(state)
-	end, keymap_opts)
-	vim.keymap.set("n", "?", function()
-		state.show_help = not state.show_help
 		render(state)
 	end, keymap_opts)
 	vim.keymap.set("n", "R", function()
