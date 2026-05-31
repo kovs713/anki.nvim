@@ -15,9 +15,9 @@ tiny Neovim bridge for reviewing Anki decks in a clean floating window.
 | | |
 |---|---|
 | ui | centered floating review window |
-| dashboard | terminal-native home, stats, XP, streak, activity strip |
+| dashboard | terminal-native home, Anki stats, read-only Onigiri gamification |
 | backend | AnkiConnect over localhost |
-| command | `:AnkiReview`, `:AnkiReview!`, `:AnkiReviewHome`, `:AnkiReviewStats` |
+| command | `:AnkiReview`, `:AnkiReview!`, `:AnkiReviewHome`, `:AnkiReviewStats`, `:AnkiReviewOnigiriPath` |
 | decks | picker when no deck is passed |
 | answers | `1` Again · `2` Hard · `3` Good · `4` Easy |
 | default | `<CR>` answers Good |
@@ -32,7 +32,7 @@ tiny Neovim bridge for reviewing Anki decks in a clean floating window.
 ```lua
 {
   "kovs713/anki.nvim",
-  cmd = { "AnkiReview", "AnkiReviewHome", "AnkiReviewStats" },
+  cmd = { "AnkiReview", "AnkiReviewHome", "AnkiReviewStats", "AnkiReviewOnigiriPath" },
   config = function()
     require("anki_review").setup()
   end,
@@ -82,44 +82,53 @@ require("anki_review").setup({
     default_ease = 3,
   },
   gamification = {
-    enabled = true,
-    xp = {
-      again = 3,
-      hard = 6,
-      good = 10,
-      easy = 12,
-    },
-    streak = {
-      enabled = true,
-    },
+    provider = "onigiri", -- "onigiri" | "none"
+  },
+  onigiri = {
+    gamification_path = nil,
+    readonly = true,
   },
   dashboard = {
     enabled = true,
-    activity_days = 7,
     width = 0.75,
     height = 0.75,
   },
 })
 ```
 
-Disable local gamification:
+Disable gamification display:
 
 ```lua
 require("anki_review").setup({
   gamification = {
-    enabled = false,
+    provider = "none",
   },
 })
+```
+
+Set Onigiri path in config:
+
+```lua
+require("anki_review").setup({
+  onigiri = {
+    gamification_path = "/path/to/gamification_User 1.json",
+  },
+})
+```
+
+Or save only the path from Neovim:
+
+```vim
+:AnkiReviewOnigiriPath /path/to/gamification_User 1.json
 ```
 
 state files:
 
 ```text
 stdpath("state")/anki_review/state.json
-stdpath("state")/anki_review/gamification.json
 ```
 
-User progress is stored under `stdpath("state")`, not the plugin install directory.
+`state.json` stores plugin-owned state only: last deck and cached Onigiri gamification JSON path.
 
 highlight groups:
 
@@ -134,15 +143,6 @@ AnkiReviewDashboardSubtitle
 AnkiReviewDashboardBorder
 AnkiReviewWidgetTitle
 AnkiReviewWidgetValue
-AnkiReviewXPBar
-AnkiReviewXPBarEmpty
-AnkiReviewStreak
-AnkiReviewActivityEmpty
-AnkiReviewActivityLow
-AnkiReviewActivityMedium
-AnkiReviewActivityHigh
-AnkiReviewActivityMax
-AnkiReviewGamificationPopup
 ```
 
 ---
@@ -180,7 +180,7 @@ single-command aliases. Use `deck` when a deck name collides with a built-in ali
 :AnkiReviewHome
 ```
 
-opens the cave dashboard: last deck, Anki status, local reviews, XP, streak, and a tiny activity strip.
+opens the cave dashboard: last deck, Anki status, due counts, review counts, and read-only Onigiri gamification data.
 
 ```vim
 :AnkiReviewStats
@@ -198,14 +198,12 @@ Two views:
 
 **Dashboard view** — compact overview with two sections:
 
-- **Local progress** — XP, level, streak, today's cards, activity strip. Gamification tracked by `anki.nvim`.
+- **Onigiri** — level, XP, coins, theme, achievements, daily specials, and last updated from Onigiri JSON.
 - **Anki collection** — AnkiConnect status, last deck, due summary (New/Learn/Review), future due counts.
 
-**Stats view** — detailed breakdown of local progress (totals, answer breakdown, last 7 days activity) and Anki collection data (status, due, future, review history).
+**Stats view** — detailed Onigiri gamification data and Anki collection data (status, due, future, review history).
 
 Future due uses Anki search `findCards` when refreshed via `R`. Full Anki review history chart is not implemented yet.
-
-Dashboard keys:
 
 Dashboard keys:
 
@@ -225,35 +223,22 @@ Opening the dashboard does not require Anki to be running. Status starts as `unk
 
 ## gamification
 
-`anki.nvim` keeps lightweight local progress stats in Neovim's state directory:
+`anki.nvim` does not invent XP, levels, streaks, achievements, or restaurant stats.
+
+It can display existing Onigiri Anki add-on gamification data in read-only mode. Onigiri remains the source of truth.
+
+Configure the Onigiri JSON path. Current Onigiri profile files are usually under the add-on `user_files` directory:
 
 ```text
-stdpath("state")/anki_review/gamification.json
+user_files/gamification_<profile_name>.json
+user_files/gamification.json
 ```
 
-Anki still owns scheduling. The plugin only tracks local XP, streaks, and
-`anki.nvim` activity for motivation.
+Profile names can contain spaces, for example `gamification_User 1.json`.
 
-XP defaults:
+`anki.nvim` only reads this file. It does not copy, modify, normalize, repair, or write Onigiri data. It does not ship Onigiri code, assets, images, icons, CSS, or UI.
 
-| answer | XP |
-|---|---:|
-| Again | 3 |
-| Hard | 6 |
-| Good | 10 |
-| Easy | 12 |
-
-Reveal answer alone gives `0` XP. XP is recorded only after `guiAnswerCard` succeeds through AnkiConnect.
-
-Level formula:
-
-```text
-level = floor(sqrt(total_xp / 100)) + 1
-```
-
-Streaks count local days where at least one card was answered. Multiple cards on the same day do not increment the streak multiple times.
-
-This data is not stored in the plugin install directory, so plugin updates should not wipe your progress.
+Answering cards through `anki.nvim` sends normal AnkiConnect review actions. It does not create local XP/streak state and does not claim XP gained.
 
 ---
 
@@ -287,11 +272,11 @@ Completion keys:
 
 **answer** - sends real Anki ease buttons through AnkiConnect, no fake scheduler.
 
-**track** - stores local XP, streaks, answer totals, and daily activity under `stdpath("state")`.
+**show** - displays configured Onigiri gamification JSON read-only.
 
 **respect** - only shows answer choices available for the current card.
 
-**finish** - detects empty decks / completed reviews and shows session XP/streak summary.
+**finish** - detects empty decks / completed reviews and shows session answer summary plus current Onigiri values when available.
 
 ---
 
@@ -299,13 +284,11 @@ Completion keys:
 
 `anki.nvim` answers cards through AnkiConnect, so reviews are still recorded by Anki itself. Stats/history add-ons may see those normal Anki reviews.
 
-Anki, Onigiri, Review Heatmap, or other tools may show older reviews that
-`anki.nvim` does not know about. Local activity only covers reviews answered
-through this plugin after local tracking exists.
+Anki, Onigiri, Review Heatmap, or other tools may show data that `anki.nvim` only reads or does not render.
 
 Visual add-ons that modify Anki's reviewer UI, card webview, buttons, colors, or keyboard shortcuts are not rendered inside the Neovim floating window.
 
-`anki.nvim` does not automatically import gamification data from Anki add-ons. Future versions may add a manual importer, but the plugin does not read or write third-party add-on state.
+`anki.nvim` can display Onigiri gamification data from a configured JSON path. It does not auto-discover, import, copy, or migrate Onigiri data into local plugin state.
 
 No gamification data is written to Anki add-on directories, the Anki collection/database, or the Anki media folder.
 
@@ -318,15 +301,17 @@ No gamification data is written to Anki add-on directories, the Anki collection/
 - `:AnkiReview!` starts last deck or warns if none saved.
 - `:AnkiReviewHome` opens without Anki running.
 - `:AnkiReviewStats` opens stats view.
+- `:AnkiReviewHome` with no Onigiri path shows path missing.
+- `:AnkiReviewOnigiriPath /path/to/gamification_User 1.json` saves only the path.
+- configured Onigiri JSON shows level, XP, coins, achievements, and daily specials.
 - dashboard does not freeze when Anki is closed.
 - dashboard `l`, `p`/`r`, `s`, `q` work.
 - review float survives terminal resize.
-- answering increments local XP after successful AnkiConnect answer.
-- reveal alone gives no XP.
-- completion screen shows XP gained and streak.
-- corrupt or missing gamification state file does not crash.
-- `gamification.enabled = false` disables recording.
-- no gamification data appears in the plugin install directory.
+- answering cards does not create local XP/streak state.
+- completion screen shows session stats and Onigiri current values or unavailable.
+- corrupt or missing Onigiri JSON does not crash.
+- `gamification.provider = "none"` disables gamification display.
+- no Onigiri data appears in the plugin install directory.
 - offline AnkiConnect shows a friendly error.
 
 ---

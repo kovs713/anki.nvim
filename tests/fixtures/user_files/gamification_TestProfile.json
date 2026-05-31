@@ -1,0 +1,46 @@
+{
+  "achievements": [
+    {
+      "id": "first_review",
+      "name": "First Review",
+      "description": "Answer a card",
+      "category": "review",
+      "unlocked": true,
+      "unlocked_date": "2026-05-30T12:00:00",
+      "progress": 1,
+      "threshold": 1,
+      "repeatable": false,
+      "count": 1,
+      "icon": null
+    }
+  ],
+  "daily_specials": [
+    {
+      "id": "daily_1",
+      "name": "Daily Special",
+      "difficulty": "easy",
+      "target_cards": 10,
+      "completed": false,
+      "description": "Review 10 cards",
+      "completed_date": null,
+      "cards_completed": 5,
+      "xp_earned": 0
+    }
+  ],
+  "restaurant_level": {
+    "daily_special": {},
+    "taiyaki_coins": 12,
+    "owned_items": ["default"],
+    "current_theme_id": "default",
+    "last_updated": "2026-05-30T12:00:00",
+    "level": 4,
+    "total_xp": 430,
+    "name": "Restaurant Level",
+    "enabled": true,
+    "notifications_enabled": true,
+    "show_profile_bar_progress": true,
+    "show_profile_page_progress": true,
+    "migrated": false
+  },
+  "last_updated": "2026-05-30T12:00:00"
+}

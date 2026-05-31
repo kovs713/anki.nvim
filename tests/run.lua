@@ -37,17 +37,12 @@ local function with_preserved_file(path, fn)
 	end
 end
 
-local function with_temp_gamification_state(fn)
-	local gamification = require("anki_review.gamification")
-	local dir = vim.fn.tempname()
-	vim.fn.delete(dir, "rf")
-	gamification._set_state_dir_for_tests(dir)
-	local ok, err = pcall(fn, gamification, dir)
-	gamification._set_state_dir_for_tests(nil)
-	vim.fn.delete(dir, "rf")
-	if not ok then
-		error(err, 2)
-	end
+local function fixture_path(name)
+	return vim.fn.getcwd() .. "/tests/fixtures/" .. name
+end
+
+local function local_gamification_path()
+	return vim.fn.stdpath("state") .. "/anki_review/gamification.json"
 end
 
 local function with_anki_stubs(stubs, fn)
@@ -195,8 +190,9 @@ test("setup merges config", function()
 		timeout = 123,
 		window = { width = 0.5 },
 		default_ease = 4,
-		gamification = { xp = { good = 15 } },
-		dashboard = { activity_days = 9 },
+		gamification = { provider = "none" },
+		onigiri = { gamification_path = "/tmp/onigiri.json" },
+		dashboard = { width = 0.8 },
 	})
 
 	local opts = config.get()
@@ -206,23 +202,22 @@ test("setup merges config", function()
 	eq(opts.window.width, 0.5)
 	eq(opts.window.height, 0.7)
 	eq(opts.behavior.default_ease, 4)
-	eq(opts.gamification.enabled, true)
-	eq(opts.gamification.xp.good, 15)
-	eq(opts.gamification.xp.easy, 12)
-	eq(opts.dashboard.activity_days, 9)
-	eq(opts.dashboard.width, 0.75)
+	eq(opts.gamification.provider, "none")
+	eq(opts.onigiri.gamification_path, "/tmp/onigiri.json")
+	eq(opts.onigiri.readonly, true)
+	eq(opts.dashboard.width, 0.8)
+	eq(opts.dashboard.height, 0.75)
 	assert_true(vim.fn.hlexists("AnkiReviewTitle") == 1, "missing title highlight")
 	config.setup()
 end)
 
 test("partial gamification config keeps nested defaults", function()
 	local config = require("anki_review.config")
-	config.setup({ gamification = { enabled = false } })
+	config.setup({ gamification = { provider = "none" } })
 	local opts = config.get()
-	eq(opts.gamification.enabled, false)
-	eq(opts.gamification.xp.again, 3)
-	eq(opts.gamification.xp.good, 10)
-	eq(opts.gamification.streak.enabled, true)
+	eq(opts.gamification.provider, "none")
+	eq(opts.onigiri.readonly, true)
+	eq(opts.onigiri.gamification_path, nil)
 	eq(opts.dashboard.width, 0.75)
 	eq(opts.window.width, 0.7)
 	config.setup()
@@ -252,179 +247,101 @@ test("AnkiReview command parses subcommands", function()
 	eq(action, "last")
 end)
 
-test("gamification loads missing state", function()
-	with_temp_gamification_state(function(gamification)
-		local state = gamification.load()
-		eq(state.version, 1)
-		eq(state.xp, 0)
-		eq(state.level, 1)
-		eq(state.totals.cards_answered, 0)
-		eq(state.streak.last_review_date, nil)
-	end)
+test("onigiri parses valid fixture", function()
+	local onigiri = require("anki_review.onigiri")
+	local data = onigiri.load(fixture_path("valid_onigiri_gamification.json"))
+	eq(data.ok, true)
+	eq(data.source, "onigiri")
+	eq(data.last_updated, "2026-05-30T12:00:00")
+	eq(data.restaurant.level, 4)
+	eq(data.restaurant.total_xp, 430)
+	eq(data.restaurant.taiyaki_coins, 12)
+	eq(data.restaurant.current_theme_id, "default")
+	eq(data.achievements.total, 1)
+	eq(data.achievements.unlocked, 1)
+	eq(data.daily_specials.total, 1)
+	eq(data.daily_specials.completed, 0)
 end)
 
-test("gamification ignores corrupt state", function()
-	with_temp_gamification_state(function(gamification)
-		vim.fn.mkdir(vim.fn.fnamemodify(gamification.path(), ":h"), "p")
-		vim.fn.writefile({ "{" }, gamification.path())
-		local state = gamification.load()
-		eq(state.xp, 0)
-		eq(state.level, 1)
-		eq(state.streak.last_review_date, nil)
-	end)
+test("onigiri reads profile-specific gamification path", function()
+	local onigiri = require("anki_review.onigiri")
+	local path = fixture_path("user_files/gamification_TestProfile.json")
+	local data = onigiri.load(path)
+	eq(data.ok, true)
+	eq(data.path, path)
+	eq(data.restaurant.name, "Restaurant Level")
 end)
 
-test("gamification save after corrupt restores valid schema", function()
+test("onigiri reads legacy gamification path", function()
+	local onigiri = require("anki_review.onigiri")
+	local data = onigiri.load(fixture_path("user_files/gamification.json"))
+	eq(data.ok, true)
+	eq(data.restaurant.level, 4)
+end)
+
+test("onigiri uses config path before cached state", function()
 	local config = require("anki_review.config")
+	local state = require("anki_review.state")
+	local onigiri = require("anki_review.onigiri")
+	local state_path = vim.fn.tempname()
+	state._set_path_for_tests(state_path)
+	state.set_onigiri_gamification_path("/tmp/missing_onigiri.json")
+	local configured = fixture_path("valid_onigiri_gamification.json")
+	config.setup({ onigiri = { gamification_path = configured } })
+	local data = onigiri.load()
+	eq(data.ok, true)
+	eq(data.path, configured)
 	config.setup()
-	with_temp_gamification_state(function(gamification)
-		vim.fn.mkdir(vim.fn.fnamemodify(gamification.path(), ":h"), "p")
-		vim.fn.writefile({ "{" }, gamification.path())
-		local result = gamification.record_answer({ ease = 3, date = "2026-05-30", card_id = 1, timestamp = 100 })
-		eq(result.recorded, true)
-		local decoded = vim.json.decode(table.concat(vim.fn.readfile(gamification.path()), "\n"))
-		eq(decoded.version, 1)
-		eq(decoded.xp, 10)
-		eq(decoded.streak.last_review_date, "2026-05-30")
-	end)
+	state._set_path_for_tests(nil)
+	vim.fn.delete(state_path)
 end)
 
-test("gamification save creates missing state dir", function()
-	local config = require("anki_review.config")
-	config.setup()
-	with_temp_gamification_state(function(gamification, dir)
-		eq(vim.fn.isdirectory(dir), 0)
-		local ok = gamification.save(gamification.default_state())
-		eq(ok, true)
-		eq(vim.fn.isdirectory(dir), 1)
-		eq(vim.fn.filereadable(gamification.path()), 1)
-	end)
+test("set_onigiri_path caches only the path", function()
+	local anki_review = require("anki_review")
+	local state = require("anki_review.state")
+	local state_path = vim.fn.tempname()
+	local path = fixture_path("user_files/gamification_TestProfile.json")
+	local old_notify = vim.notify
+	vim.notify = function() end
+	state._set_path_for_tests(state_path)
+	eq(anki_review.set_onigiri_path(path), true)
+	eq(state.onigiri_gamification_path(), path)
+	local decoded = vim.json.decode(table.concat(vim.fn.readfile(state_path), "\n"))
+	eq(decoded.onigiri.gamification_path, path)
+	eq(decoded.xp, nil)
+	eq(decoded.level, nil)
+	eq(decoded.streak, nil)
+	state._set_path_for_tests(nil)
+	vim.notify = old_notify
+	vim.fn.delete(state_path)
 end)
 
-test("gamification normalizes partial wrong state", function()
-	local gamification = require("anki_review.gamification")
-	local state = gamification._normalize_state({
-		version = "bad",
-		xp = "400.9",
-		level = "999",
-		streak = { current = "2", best = false, last_review_date = 123 },
-		totals = { cards_answered = "7", good = "nope", review_seconds = -5 },
-		daily = { ["2026-05-30"] = { cards = "15", good = "9", xp = "90" }, bad = "value" },
-		achievements = "bad",
-		imports = { "manual-future" },
-	})
-	eq(state.version, 1)
-	eq(state.xp, 400)
-	eq(state.level, 3)
-	eq(state.streak.current, 2)
-	eq(state.streak.best, 0)
-	eq(state.streak.last_review_date, nil)
-	eq(state.totals.cards_answered, 7)
-	eq(state.totals.good, 0)
-	eq(state.totals.review_seconds, 0)
-	eq(state.daily["2026-05-30"].cards, 15)
-	eq(state.daily["2026-05-30"].good, 9)
-	eq(state.daily["2026-05-30"].xp, 90)
-	eq(state.daily.bad, nil)
-	eq(#state.achievements, 0)
-	eq(state.imports[1], "manual-future")
+test("onigiri reports missing path and missing file", function()
+	local onigiri = require("anki_review.onigiri")
+	local missing_path = onigiri.load("")
+	eq(missing_path.ok, false)
+	eq(missing_path.error, "path not configured")
+	local missing_file = onigiri.load(fixture_path("missing_onigiri.json"))
+	eq(missing_file.ok, false)
+	eq(missing_file.error, "file not found")
 end)
 
-test("gamification writes only under state path", function()
-	local gamification = require("anki_review.gamification")
-	gamification._set_state_dir_for_tests(nil)
-	local path = gamification.path()
-	assert_true(path:find(vim.fn.stdpath("state"), 1, true) == 1, "not under stdpath state")
-	assert_true(not path:find(vim.fn.getcwd(), 1, true), "path is under plugin root")
+test("onigiri reports corrupt json", function()
+	local onigiri = require("anki_review.onigiri")
+	local data = onigiri.load(fixture_path("corrupt_onigiri_gamification.json"))
+	eq(data.ok, false)
+	eq(data.error, "invalid json")
 end)
 
-test("gamification records xp by ease", function()
-	local config = require("anki_review.config")
-	config.setup()
-	with_temp_gamification_state(function(gamification)
-		gamification.reset_duplicate_guard()
-		eq(gamification.record_answer({ ease = 1, date = "2026-05-30", card_id = 1, timestamp = 1 }).xp, 3)
-		eq(gamification.record_answer({ ease = 2, date = "2026-05-30", card_id = 2, timestamp = 2 }).xp, 6)
-		eq(gamification.record_answer({ ease = 3, date = "2026-05-30", card_id = 3, timestamp = 3 }).xp, 10)
-		eq(gamification.record_answer({ ease = 4, date = "2026-05-30", card_id = 4, timestamp = 4 }).xp, 12)
-		local state = gamification.load()
-		eq(state.xp, 31)
-		eq(state.totals.again, 1)
-		eq(state.totals.hard, 1)
-		eq(state.totals.good, 1)
-		eq(state.totals.easy, 1)
-		eq(state.daily["2026-05-30"].cards, 4)
-	end)
-end)
-
-test("disabled gamification records nothing", function()
-	local config = require("anki_review.config")
-	config.setup({ gamification = { enabled = false } })
-	with_temp_gamification_state(function(gamification)
-		local result = gamification.record_answer({ ease = 3, date = "2026-05-30", card_id = 1, timestamp = 100 })
-		eq(result.recorded, false)
-		eq(result.disabled, true)
-		local session_result = gamification.record_session()
-		eq(session_result.recorded, false)
-		eq(session_result.disabled, true)
-		eq(vim.fn.filereadable(gamification.path()), 0)
-	end)
-	config.setup()
-end)
-
-test("streak increments for yesterday and resets older", function()
-	local gamification = require("anki_review.gamification")
-	local first = gamification.update_streak({ current = 0, best = 0 }, "2026-05-30")
-	eq(first.current, 1)
-	eq(first.best, 1)
-	local second = gamification.update_streak(first, "2026-05-31")
-	eq(second.current, 2)
-	eq(second.best, 2)
-	local reset = gamification.update_streak(second, "2026-06-03")
-	eq(reset.current, 1)
-	eq(reset.best, 2)
-end)
-
-test("streak does not increment twice in one day", function()
-	local gamification = require("anki_review.gamification")
-	local first = gamification.update_streak({ current = 2, best = 3, last_review_date = "2026-05-30" }, "2026-05-30")
-	eq(first.current, 2)
-	eq(first.best, 3)
-	eq(first.last_review_date, "2026-05-30")
-end)
-
-test("level calculation works", function()
-	local gamification = require("anki_review.gamification")
-	eq(gamification.level_for_xp(0), 1)
-	eq(gamification.level_for_xp(99), 1)
-	eq(gamification.level_for_xp(100), 2)
-	eq(gamification.level_for_xp(400), 3)
-	eq(gamification.level_for_xp(900), 4)
-end)
-
-test("xp progress calculation works", function()
-	local gamification = require("anki_review.gamification")
-	local progress = gamification.level_progress(430)
-	eq(progress.current_level, 3)
-	eq(progress.current_level_start_xp, 400)
-	eq(progress.next_level_start_xp, 900)
-	eq(progress.xp_into_level, 30)
-	eq(progress.xp_needed_for_next_level, 500)
-end)
-
-test("activity symbol maps card counts", function()
-	local gamification = require("anki_review.gamification")
-	local symbol
-	symbol = gamification.activity_symbol(0)
-	eq(symbol, "·")
-	symbol = gamification.activity_symbol(1)
-	eq(symbol, "░")
-	symbol = gamification.activity_symbol(5)
-	eq(symbol, "▒")
-	symbol = gamification.activity_symbol(15)
-	eq(symbol, "▓")
-	symbol = gamification.activity_symbol(30)
-	eq(symbol, "█")
+test("onigiri tolerates wrong-shaped json", function()
+	local onigiri = require("anki_review.onigiri")
+	local data = onigiri.load(fixture_path("wrong_shape_onigiri_gamification.json"))
+	eq(data.ok, true)
+	eq(data.restaurant.level, nil)
+	eq(data.achievements.total, 0)
+	eq(data.achievements.unlocked, 0)
+	eq(data.daily_specials.total, 0)
+	eq(data.daily_specials.completed, 0)
 end)
 
 -- Dashboard / stats view tests
@@ -434,7 +351,7 @@ test("dashboard render lines handle empty state", function()
 	config.setup()
 	local dashboard = require("anki_review.dashboard")
 	local lines = dashboard._render_lines({
-		gamification = require("anki_review.gamification").default_state(),
+		onigiri = { ok = false, source = "onigiri", error = "path not configured" },
 		anki_status = { state = "unknown" },
 		deck_stats = nil,
 		future_due = nil,
@@ -442,7 +359,9 @@ test("dashboard render lines handle empty state", function()
 	})
 	local rendered = table.concat(lines, "\n")
 	assert_true(#lines > 0, "empty dashboard")
-	assert_true(rendered:find("Local progress", 1, true), "missing local progress label")
+	assert_true(rendered:find("Onigiri", 1, true), "missing Onigiri label")
+	assert_true(rendered:find("Status: path missing", 1, true), "missing path missing status")
+	assert_true(rendered:find("Onigiri: path not configured", 1, true), "missing path prompt")
 	assert_true(rendered:find("Anki collection", 1, true), "missing Anki collection label")
 	assert_true(rendered:find("Status unknown", 1, true), "missing status unknown")
 	assert_true(rendered:find("Due unavailable", 1, true), "missing due unavailable")
@@ -479,25 +398,48 @@ test("dashboard view switch resets scroll", function()
 	config.setup()
 end)
 
-test("stats view separates local and Anki stats", function()
+test("dashboard render shows valid Onigiri data", function()
+	local config = require("anki_review.config")
 	local dashboard = require("anki_review.dashboard")
+	local onigiri = require("anki_review.onigiri")
+	config.setup()
+	local lines = dashboard._render_lines({
+		onigiri = onigiri.load(fixture_path("valid_onigiri_gamification.json")),
+		anki_status = { state = "unknown" },
+	})
+	local rendered = table.concat(lines, "\n")
+	assert_true(rendered:find("Status: connected", 1, true), "missing connected status")
+	assert_true(rendered:find("Level: 4", 1, true), "missing level")
+	assert_true(rendered:find("XP: 430", 1, true), "missing xp")
+	assert_true(rendered:find("Coins: 12", 1, true), "missing coins")
+	assert_true(rendered:find("Achievements: 1/1", 1, true), "missing achievements")
+	assert_true(rendered:find("Daily specials: 0/1", 1, true), "missing daily specials")
+	config.setup()
+end)
+
+test("stats view separates Onigiri and Anki stats", function()
+	local dashboard = require("anki_review.dashboard")
+	local onigiri = require("anki_review.onigiri")
 	local lines = dashboard._render_stats_lines({
-		gamification = require("anki_review.gamification").default_state(),
+		onigiri = onigiri.load(fixture_path("valid_onigiri_gamification.json")),
 		anki_status = { state = "connected", version = 6 },
 		deck_stats = { new_count = 5, learn_count = 0, review_count = 43, total_in_deck = 1234 },
 		future_due = { tomorrow = 3, future = 48 },
 		last_deck = "Japanese::Core",
 	})
 	local rendered = table.concat(lines, "\n")
-	assert_true(rendered:find("Local activity", 1, true), "missing local activity")
-	assert_true(rendered:find("anki.nvim reviews only", 1, true), "missing local disclaimer")
+	assert_true(rendered:find("Onigiri gamification", 1, true), "missing Onigiri stats")
+	assert_true(rendered:find("Level: 4", 1, true), "missing Onigiri level")
+	assert_true(rendered:find("Total XP: 430", 1, true), "missing Onigiri XP")
+	assert_true(rendered:find("Unlocked: 1 / 1", 1, true), "missing achievements count")
+	assert_true(rendered:find("Completed: 0 / 1", 1, true), "missing daily specials count")
 	assert_true(rendered:find("Anki collection", 1, true), "missing Anki collection label")
 	assert_true(rendered:find("Due: New 5 \xc2\xb7 Learn 0 \xc2\xb7 Review 43 \xc2\xb7 Total 1234", 1, true), "missing Anki due")
 	assert_true(rendered:find("Future: Tomorrow 3 \xc2\xb7 Future 48", 1, true), "missing future due")
 	assert_true(not rendered:find("Review history", 1, true), "review history line still present")
 	assert_true(not rendered:find("Future due: not implemented yet", 1, true), "old future due placeholder")
 	assert_true(not rendered:find("Anki stats", 1, true), "old Anki stats label")
-	assert_true(not rendered:find("local plugin stats, not full Anki history", 1, true), "old disclaimer format")
+	assert_true(not rendered:find("Local activity", 1, true), "local activity still present")
 end)
 
 test("dashboard refresh gets due from Anki", function()
@@ -515,6 +457,10 @@ test("dashboard refresh gets due from Anki", function()
 		future_due = function(deck)
 			eq(deck, "Japanese::Core")
 			return { tomorrow = 3, future = 48 }, nil
+		end,
+		review_counts = function(deck)
+			eq(deck, "Japanese::Core")
+			return { today = 1, week = 2, month = 3 }, nil
 		end,
 	}, function()
 		local state = {
@@ -539,24 +485,24 @@ end)
 test("dashboard render handles disabled gamification", function()
 	local config = require("anki_review.config")
 	local dashboard = require("anki_review.dashboard")
-	config.setup({ gamification = { enabled = false } })
-	local lines = dashboard._render_lines({ gamification = require("anki_review.gamification").default_state() })
+	config.setup({ gamification = { provider = "none" } })
+	local lines = dashboard._render_lines({ onigiri = { ok = false, source = "onigiri", error = "path not configured" } })
 	local rendered = table.concat(lines, "\n")
 	assert_true(rendered:find("Gamification disabled", 1, true), "missing disabled message")
-	assert_true(not rendered:find("Level 1", 1, true), "disabled dashboard still shows level")
+	assert_true(not rendered:find("Level: 1", 1, true), "disabled dashboard still shows level")
 	config.setup()
 end)
 
-test("review completion omits xp when gamification disabled", function()
+test("review completion omits local xp when gamification disabled", function()
 	local config = require("anki_review.config")
 	local ui = require("anki_review.ui")
-	config.setup({ gamification = { enabled = false } })
+	config.setup({ gamification = { provider = "none" } })
 	local state = {
 		buf = vim.api.nvim_create_buf(false, true),
 		complete = true,
 		deck = "Deck",
 		session_started_at = os.time(),
-		stats = { answered = 1, xp = 10, ease = { [1] = 0, [2] = 0, [3] = 1, [4] = 0 } },
+		stats = { answered = 1, ease = { [1] = 0, [2] = 0, [3] = 1, [4] = 0 } },
 	}
 	ui.render(state)
 	local rendered = table.concat(vim.api.nvim_buf_get_lines(state.buf, 0, -1, false), "\n")
@@ -566,45 +512,31 @@ test("review completion omits xp when gamification disabled", function()
 	config.setup()
 end)
 
-test("duplicate guard only blocks immediate same event", function()
+test("review completion shows current Onigiri values", function()
 	local config = require("anki_review.config")
+	local ui = require("anki_review.ui")
+	config.setup({ onigiri = { gamification_path = fixture_path("valid_onigiri_gamification.json") } })
+	local state = {
+		buf = vim.api.nvim_create_buf(false, true),
+		complete = true,
+		deck = "Deck",
+		session_started_at = os.time(),
+		stats = { answered = 1, ease = { [1] = 0, [2] = 0, [3] = 1, [4] = 0 } },
+	}
+	ui.render(state)
+	local rendered = table.concat(vim.api.nvim_buf_get_lines(state.buf, 0, -1, false), "\n")
+	assert_true(rendered:find("Onigiri: Level 4    XP 430    Coins 12", 1, true), "missing Onigiri completion values")
+	assert_true(not rendered:find("XP gained", 1, true), "completion shows local xp")
+	vim.api.nvim_buf_delete(state.buf, { force = true })
 	config.setup()
-	with_temp_gamification_state(function(gamification)
-		gamification.reset_duplicate_guard()
-		local first = gamification.record_answer({ ease = 3, date = "2026-05-30", card_id = 42, timestamp = 100 })
-		local second = gamification.record_answer({ ease = 3, date = "2026-05-30", card_id = 42, timestamp = 100 })
-		local later = gamification.record_answer({ ease = 3, date = "2026-05-30", card_id = 42, timestamp = 101 })
-		local different = gamification.record_answer({ ease = 3, date = "2026-05-30", card_id = 43, timestamp = 102 })
-		local missing_id = gamification.record_answer({ ease = 3, date = "2026-05-30", timestamp = 102 })
-		local missing_id_again = gamification.record_answer({ ease = 3, date = "2026-05-30", timestamp = 102 })
-		eq(first.recorded, true)
-		eq(second.recorded, false)
-		eq(second.duplicate, true)
-		eq(later.recorded, true)
-		eq(different.recorded, true)
-		eq(missing_id.recorded, true)
-		eq(missing_id_again.recorded, true)
-		eq(gamification.load().xp, 50)
-	end)
 end)
 
-test("duplicate guard resets between sessions", function()
-	local config = require("anki_review.config")
-	config.setup()
-	with_temp_gamification_state(function(gamification)
-		gamification.reset_duplicate_guard()
-		eq(gamification.record_answer({ ease = 3, date = "2026-05-30", card_id = 42, timestamp = 100 }).recorded, true)
-		gamification.reset_duplicate_guard()
-		eq(gamification.record_answer({ ease = 3, date = "2026-05-30", card_id = 42, timestamp = 100 }).recorded, true)
-		eq(gamification.load().xp, 20)
-	end)
-end)
-
-test("failed guiAnswerCard does not record xp", function()
+test("failed guiAnswerCard does not create local gamification file", function()
 	local config = require("anki_review.config")
 	local session = require("anki_review.session")
 	config.setup()
-	with_temp_gamification_state(function(gamification)
+	with_preserved_file(local_gamification_path(), function()
+		vim.fn.delete(local_gamification_path())
 		with_anki_stubs({
 			start_review = function()
 				return true, nil
@@ -625,17 +557,18 @@ test("failed guiAnswerCard does not record xp", function()
 			assert_true(session.start("Deck"), "session did not start")
 			session.show_answer()
 			session.answer(3)
-			eq(vim.fn.filereadable(gamification.path()), 0)
+			eq(vim.fn.filereadable(local_gamification_path()), 0)
 			session.close()
 		end)
 	end)
 end)
 
-test("successful answer records xp before next-card failure", function()
+test("successful answer does not create local xp state", function()
 	local config = require("anki_review.config")
 	local session = require("anki_review.session")
 	config.setup()
-	with_temp_gamification_state(function(gamification)
+	with_preserved_file(local_gamification_path(), function()
+		vim.fn.delete(local_gamification_path())
 		local current_calls = 0
 		with_anki_stubs({
 			start_review = function()
@@ -661,7 +594,7 @@ test("successful answer records xp before next-card failure", function()
 			assert_true(session.start("Deck"), "session did not start")
 			session.show_answer()
 			session.answer(3)
-			eq(gamification.load().xp, 10)
+			eq(vim.fn.filereadable(local_gamification_path()), 0)
 			session.close()
 		end)
 	end)
@@ -696,22 +629,22 @@ test("anki request uses configured endpoint and timeout", function()
 	config.setup()
 end)
 
-test("state stores last deck and ignores corrupt json", function()
+test("state stores plugin-owned state and ignores corrupt json", function()
 	local state = require("anki_review.state")
-	local path = state._path()
-	local existed = vim.fn.filereadable(path) == 1
-	local old = existed and vim.fn.readfile(path) or nil
+	local path = vim.fn.tempname()
+	state._set_path_for_tests(path)
 
 	state.set_last_deck("Japanese::Core")
 	eq(state.last_deck(), "Japanese::Core")
+	state.set_onigiri_gamification_path("/tmp/gamification_User 1.json")
+	eq(state.last_deck(), "Japanese::Core")
+	eq(state.onigiri_gamification_path(), "/tmp/gamification_User 1.json")
 	vim.fn.writefile({ "{" }, path)
 	eq(state.last_deck(), nil)
+	eq(state.onigiri_gamification_path(), nil)
 
-	if existed then
-		vim.fn.writefile(old, path)
-	else
-		vim.fn.delete(path)
-	end
+	state._set_path_for_tests(nil)
+	vim.fn.delete(path)
 end)
 
 test("picker selects last deck by default", function()
@@ -904,7 +837,7 @@ test("status consistency between dashboard and stats views", function()
 	local dashboard = require("anki_review.dashboard")
 	local anki_status = { state = "connected", version = 6, error = nil, queried_at = os.time() }
 	local context = {
-		gamification = require("anki_review.gamification").default_state(),
+		onigiri = { ok = false, source = "onigiri", error = "path not configured" },
 		anki_status = anki_status,
 		deck_stats = { new_count = 5, learn_count = 0, review_count = 43, total_in_deck = 500 },
 		future_due = { tomorrow = 3, future = 48 },
@@ -920,7 +853,7 @@ end)
 test("no duplicate Anki stats blocks in dashboard", function()
 	local dashboard = require("anki_review.dashboard")
 	local context = {
-		gamification = require("anki_review.gamification").default_state(),
+		onigiri = { ok = false, source = "onigiri", error = "path not configured" },
 		anki_status = { state = "unknown" },
 	}
 	local rendered = table.concat(dashboard._render_lines(context), "\n")
@@ -938,7 +871,7 @@ end)
 test("no duplicate Anki stats blocks in stats view", function()
 	local dashboard = require("anki_review.dashboard")
 	local context = {
-		gamification = require("anki_review.gamification").default_state(),
+		onigiri = { ok = false, source = "onigiri", error = "path not configured" },
 		anki_status = { state = "unknown" },
 	}
 	local rendered = table.concat(dashboard._render_stats_lines(context), "\n")
@@ -956,7 +889,7 @@ end)
 test("no old Anki stats label appears", function()
 	local dashboard = require("anki_review.dashboard")
 	local context = {
-		gamification = require("anki_review.gamification").default_state(),
+		onigiri = { ok = false, source = "onigiri", error = "path not configured" },
 		anki_status = { state = "unknown" },
 	}
 	local dash = table.concat(dashboard._render_lines(context), "\n")
@@ -971,7 +904,7 @@ test("long deck name renders safely truncated", function()
 	local dashboard = require("anki_review.dashboard")
 	local long_name = string.rep("deck", 50)
 	local context = {
-		gamification = require("anki_review.gamification").default_state(),
+		onigiri = { ok = false, source = "onigiri", error = "path not configured" },
 		anki_status = { state = "unknown" },
 		last_deck = long_name,
 		width = 78,
@@ -987,7 +920,7 @@ test("due summary formatting without stats shows unavailable", function()
 	config.setup()
 	local dashboard = require("anki_review.dashboard")
 	local context = {
-		gamification = require("anki_review.gamification").default_state(),
+		onigiri = { ok = false, source = "onigiri", error = "path not configured" },
 		anki_status = { state = "unknown" },
 		deck_stats = nil,
 	}
@@ -1002,7 +935,7 @@ test("future summary formatting without data shows unavailable", function()
 	config.setup()
 	local dashboard = require("anki_review.dashboard")
 	local context = {
-		gamification = require("anki_review.gamification").default_state(),
+		onigiri = { ok = false, source = "onigiri", error = "path not configured" },
 		anki_status = { state = "unknown" },
 		future_due = nil,
 	}
@@ -1017,7 +950,7 @@ test("dashboard with connected status and full stats renders correctly", functio
 	config.setup()
 	local dashboard = require("anki_review.dashboard")
 	local context = {
-		gamification = require("anki_review.gamification").default_state(),
+		onigiri = { ok = false, source = "onigiri", error = "path not configured" },
 		anki_status = { state = "connected", version = 6 },
 		deck_stats = { new_count = 5, learn_count = 0, review_count = 43, total_in_deck = 5000 },
 		future_due = { tomorrow = 3, future = 48 },
@@ -1106,7 +1039,7 @@ test("review_counts renders in dashboard and stats", function()
 	config.setup()
 	local dashboard = require("anki_review.dashboard")
 	local context = {
-		gamification = require("anki_review.gamification").default_state(),
+		onigiri = { ok = false, source = "onigiri", error = "path not configured" },
 		anki_status = { state = "unknown" },
 		review_counts = { today = 5, week = 42, month = 300 },
 	}
@@ -1121,7 +1054,7 @@ test("review_counts unavailable when absent", function()
 	config.setup()
 	local dashboard = require("anki_review.dashboard")
 	local context = {
-		gamification = require("anki_review.gamification").default_state(),
+		onigiri = { ok = false, source = "onigiri", error = "path not configured" },
 		anki_status = { state = "unknown" },
 	}
 	local dash = table.concat(dashboard._render_lines(context), "\n")
