@@ -9,3 +9,7 @@ end, {})
 vim.api.nvim_create_user_command("AnkiReviewStats", function()
 	require("anki_review").stats()
 end, {})
+
+vim.api.nvim_create_user_command("AnkiReviewOnigiriPath", function(opts)
+	require("anki_review").set_onigiri_path(opts.args)
+end, { nargs = "*", complete = "file" })

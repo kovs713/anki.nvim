@@ -22,20 +22,14 @@ local defaults = {
 		default_ease = 3,
 	},
 	gamification = {
-		enabled = true,
-		xp = {
-			again = 3,
-			hard = 6,
-			good = 10,
-			easy = 12,
-		},
-		streak = {
-			enabled = true,
-		},
+		provider = "onigiri",
+	},
+	onigiri = {
+		gamification_path = nil,
+		readonly = true,
 	},
 	dashboard = {
 		enabled = true,
-		activity_days = 7,
 		width = 0.75,
 		height = 0.75,
 	},

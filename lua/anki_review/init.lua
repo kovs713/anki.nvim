@@ -72,6 +72,25 @@ function M.stats()
 	}, { view = "stats" })
 end
 
+function M.set_onigiri_path(path)
+	path = trim(path)
+	if path == "" then
+		path = trim(vim.fn.input("Onigiri gamification JSON: "))
+	end
+	if path == "" then
+		vim.notify("AnkiReview: Onigiri path unchanged", vim.log.levels.WARN)
+		return false
+	end
+
+	if persisted.set_onigiri_gamification_path(path) then
+		vim.notify("AnkiReview: Onigiri path saved", vim.log.levels.INFO)
+		return true
+	end
+
+	vim.notify("AnkiReview: failed to save Onigiri path", vim.log.levels.ERROR)
+	return false
+end
+
 function M._parse_command(args, bang)
 	args = trim(args)
 	if bang then
