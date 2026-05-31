@@ -1,0 +1,33 @@
+{
+  "last_updated": "2026-05-30T12:00:00",
+  "restaurant_level": {
+    "level": 4,
+    "total_xp": 430,
+    "taiyaki_coins": 12,
+    "owned_items": ["theme_default"],
+    "current_theme_id": "default",
+    "name": "Restaurant Level"
+  },
+  "daily_specials": [
+    {
+      "id": "special_1",
+      "name": "Review Sprint",
+      "difficulty": "easy",
+      "target_cards": 20,
+      "completed": false,
+      "cards_completed": 10,
+      "xp_earned": 15
+    }
+  ],
+  "achievements": [
+    {
+      "id": "ach_1",
+      "name": "First Review",
+      "description": "Complete one review",
+      "category": "review",
+      "unlocked": true,
+      "progress": 1,
+      "threshold": 1
+    }
+  ]
+}

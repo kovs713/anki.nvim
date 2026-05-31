@@ -15,9 +15,9 @@ tiny Neovim bridge for reviewing Anki decks in a clean floating window.
 | | |
 |---|---|
 | ui | centered floating review window |
-| dashboard | terminal-native home, Anki stats, read-only Onigiri gamification |
+| dashboard | terminal-native read-only Onigiri companion panel |
 | backend | AnkiConnect over localhost |
-| command | `:AnkiReview`, `:AnkiReview!`, `:AnkiReviewHome`, `:AnkiReviewStats`, `:AnkiReviewOnigiriPath` |
+| command | `:AnkiReview`, `:AnkiReview!`, `:AnkiReviewHome`, `:AnkiReviewStats`, `:AnkiReviewOnigiriPath`, `:AnkiReviewFindOnigiri` |
 | decks | picker when no deck is passed |
 | answers | `1` Again · `2` Hard · `3` Good · `4` Easy |
 | default | `<CR>` answers Good |
@@ -180,7 +180,8 @@ single-command aliases. Use `deck` when a deck name collides with a built-in ali
 :AnkiReviewHome
 ```
 
-opens the cave dashboard: last deck, Anki status, due counts, review counts, and read-only Onigiri gamification data.
+opens the Onigiri-only dashboard when Onigiri JSON is configured and valid.
+If Onigiri is missing/invalid, shows a setup screen instead of fallback stats.
 
 ```vim
 :AnkiReviewStats
@@ -192,38 +193,29 @@ opens the dashboard directly in stats view.
 
 ## dashboard
 
-`:AnkiReviewHome` is a Neovim-native dashboard made from text, Unicode, floating windows, and highlight groups.
+`:AnkiReviewHome` is an Onigiri companion dashboard.
 
-Two views:
-
-**Dashboard view** — compact overview with two sections:
-
-- **Onigiri** — level, XP, coins, theme, achievements, daily specials, and last updated from Onigiri JSON.
-- **Anki collection** — AnkiConnect status, last deck, due summary (New/Learn/Review), future due counts.
-
-**Stats view** — detailed Onigiri gamification data and Anki collection data (status, due, future, review history).
-
-Future due uses Anki search `findCards` when refreshed via `R`. Full Anki review history chart is not implemented yet.
+- Dashboard and `:AnkiReviewStats` render Onigiri JSON fields only.
+- No local anki.nvim XP/streak/gamification storage.
+- No Anki collection stats mixed into main dashboard/stats views.
+- If Onigiri is not installed/configured/valid, dashboard is unavailable and shows setup guidance.
 
 Dashboard keys:
 
 | key | action |
 |---|---|
-| `r` / `p` | open deck picker |
-| `l` | review last deck |
 | `s` | stats view |
 | `h` / `<BS>` | return from stats |
-| `?` | toggle help |
-| `R` | refresh status |
+| `R` | refresh Onigiri file |
 | `q` / `<Esc>` | close |
-
-Opening the dashboard does not require Anki to be running. Status starts as `unknown`; press `R` for a short status check.
 
 ---
 
 ## gamification
 
-`anki.nvim` does not invent XP, levels, streaks, achievements, or restaurant stats.
+Dashboard is Onigiri-only.
+
+`anki.nvim` does not implement its own gamification and does not invent XP, levels, streaks, achievements, or restaurant stats.
 
 It can display existing Onigiri Anki add-on gamification data in read-only mode. Onigiri remains the source of truth.
 
@@ -236,7 +228,9 @@ user_files/gamification.json
 
 Profile names can contain spaces, for example `gamification_User 1.json`.
 
-`anki.nvim` only reads this file. It does not copy, modify, normalize, repair, or write Onigiri data. It does not ship Onigiri code, assets, images, icons, CSS, or UI.
+`anki.nvim` only reads this file in read-only mode. It does not copy, modify, normalize, repair, or write Onigiri data. Onigiri remains source of truth.
+
+Anki collection stats are separate from Onigiri dashboard and are not shown in `:AnkiReviewHome` or `:AnkiReviewStats`.
 
 Answering cards through `anki.nvim` sends normal AnkiConnect review actions. It does not create local XP/streak state and does not claim XP gained.
 
