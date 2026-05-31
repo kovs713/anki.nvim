@@ -1,4 +1,5 @@
 local config = require("anki_review.config")
+local anki = require("anki_review.anki")
 local onigiri = require("anki_review.onigiri")
 
 local M = {}
@@ -22,11 +23,236 @@ local function size()
 	}
 end
 
+local function display_width(text)
+	return vim.fn.strdisplaywidth(text or "")
+end
+
 local function value(raw)
 	if raw == nil then
 		return "unknown"
 	end
 	return tostring(raw)
+end
+
+local function clip_text(text, max_width)
+	text = tostring(text or "")
+	if max_width <= 0 then
+		return ""
+	end
+	if display_width(text) <= max_width then
+		return text
+	end
+	if max_width == 1 then
+		return "…"
+	end
+	local out = ""
+	for _, ch in ipairs(vim.fn.split(text, "\\zs")) do
+		if display_width(out .. ch) >= max_width then
+			break
+		end
+		out = out .. ch
+	end
+	return out .. "…"
+end
+
+local function pad_right(text, width)
+	text = clip_text(text or "", width)
+	local pad = math.max(0, width - display_width(text))
+	return text .. string.rep(" ", pad)
+end
+
+local function header_line(left, right, inner)
+	local gap = math.max(1, inner - display_width(left) - display_width(right))
+	return "│" .. left .. string.rep(" ", gap) .. right .. "│"
+end
+
+local function layout_width(width, max_width)
+	local available = math.max(30, tonumber(width) or 78)
+	local inner = math.max(28, available - 2)
+	if max_width then
+		inner = math.min(max_width, inner)
+	end
+	local prefix = string.rep(" ", math.max(0, math.floor((available - inner - 2) / 2)))
+	return inner, prefix
+end
+
+local function fmt_num(n)
+	n = tonumber(n)
+	if not n then
+		return "?"
+	end
+	local s = tostring(math.floor(n))
+	local rev = s:reverse():gsub("(%d%d%d)", "%1,"):reverse()
+	if rev:sub(1, 1) == "," then
+		rev = rev:sub(2)
+	end
+	return rev
+end
+
+local function progress_bar(current, total, width)
+	width = math.max(1, tonumber(width) or 1)
+	local c = tonumber(current) or 0
+	local t = tonumber(total) or 0
+	if t <= 0 then
+		return string.rep("░", width)
+	end
+	local filled = math.floor(math.max(0, math.min(1, c / t)) * width + 0.5)
+	return string.rep("█", filled) .. string.rep("░", math.max(0, width - filled))
+end
+
+local function short_time(iso)
+	if type(iso) ~= "string" then
+		return "synced --:--"
+	end
+	local h, m = iso:match("T(%d%d):(%d%d)")
+	if h and m then
+		return "synced " .. h .. ":" .. m
+	end
+	return "synced " .. iso
+end
+
+local function short_time_full(iso)
+	if type(iso) ~= "string" then
+		return "synced unknown"
+	end
+	local d, h, m = iso:match("^(%d%d%d%d%-%d%d%-%d%d)T(%d%d):(%d%d)")
+	if d and h and m then
+		return "synced " .. d .. " " .. h .. ":" .. m
+	end
+	return "synced " .. iso
+end
+
+local function condense_flags(restaurant)
+	local flags = {}
+	if restaurant.current_theme_id then
+		table.insert(flags, "theme " .. restaurant.current_theme_id)
+	end
+	if restaurant.notifications_enabled == true then
+		table.insert(flags, "notifs on")
+	end
+	if restaurant.migrated == true then
+		table.insert(flags, "migrated")
+	end
+	if restaurant.show_profile_bar_progress == true or restaurant.show_profile_page_progress == true then
+		table.insert(flags, "progress on")
+	end
+	if restaurant.show_profile_bar_progress == true and restaurant.show_profile_page_progress == true then
+		table.insert(flags, "profile page+bar")
+	end
+	if #flags == 0 then
+		return "default settings"
+	end
+	return table.concat(flags, " · ")
+end
+
+local function abbreviate_path(path, max_width)
+	path = tostring(path or "unknown")
+	if display_width(path) <= max_width then
+		return path
+	end
+	local file = path:match("([^/]+)$") or path
+	if path:find("1011095603", 1, true) then
+		local short = "…/1011095603/…/" .. file
+		if display_width(short) <= max_width then
+			return short
+		end
+	end
+	return clip_text(path, max_width)
+end
+
+local function wrap_text(text, width)
+	local out = {}
+	local line = ""
+	for _, part in ipairs(vim.split(tostring(text or ""), "/", { plain = true })) do
+		local seg = (line == "" and part) or (line .. "/" .. part)
+		if display_width(seg) <= width then
+			line = seg
+		else
+			if line ~= "" then
+				table.insert(out, line)
+			end
+			line = part
+		end
+	end
+	if line ~= "" then
+		table.insert(out, line)
+	end
+	if #out == 0 then
+		return { "" }
+	end
+	return out
+end
+
+local function parse_date(date)
+	local y, m, d = tostring(date or ""):match("^(%d%d%d%d)%-(%d%d)%-(%d%d)")
+	if not y then
+		return nil
+	end
+	return os.time({ year = tonumber(y), month = tonumber(m), day = tonumber(d), hour = 12 })
+end
+
+local function date_key(time)
+	return os.date("%Y-%m-%d", time)
+end
+
+local function month_label(time)
+	return os.date("%b", time)
+end
+
+local function activity_heatmap(activity, width)
+	local items = activity and activity.items or {}
+	if type(items) ~= "table" or #items == 0 then
+		return { "   Activity data unavailable in Onigiri JSON." }
+	end
+
+	local by_date = {}
+	local max_count = 0
+	local end_time = 0
+	for _, item in ipairs(items) do
+		local time = parse_date(item.date)
+		local count = tonumber(item.count) or 0
+		if time then
+			local key = date_key(time)
+			by_date[key] = count
+			max_count = math.max(max_count, count)
+			end_time = math.max(end_time, time)
+		end
+	end
+	if end_time == 0 then
+		return { "   Activity data unavailable in Onigiri JSON." }
+	end
+
+	local weeks = math.max(4, math.min(13, math.floor((width - 10) / 2)))
+	local start_time = end_time - ((weeks * 7) - 1) * 86400
+	local rows = {}
+	local month_line = string.rep(" ", weeks * 2 - 1)
+	local last_month = nil
+	for week = 0, weeks - 1 do
+		local label = month_label(start_time + (week * 7 * 86400))
+		if label ~= last_month then
+			local col = week * 2 + 1
+			if col + #label - 1 <= #month_line then
+				month_line = month_line:sub(1, col - 1) .. label .. month_line:sub(col + #label)
+			end
+			last_month = label
+		end
+	end
+	table.insert(rows, "      " .. month_line)
+	local labels = { "M", "T", "W", "T", "F", "S", "S" }
+	for day = 0, 6 do
+		local cells = {}
+		for week = 0, weeks - 1 do
+			local count = by_date[date_key(start_time + ((week * 7 + day) * 86400))] or 0
+			local cell = "·"
+			if max_count > 0 and count > 0 then
+				local level = math.ceil((count / max_count) * 4)
+				cell = ({ "░", "▒", "▓", "█" })[math.max(1, math.min(4, level))]
+			end
+			table.insert(cells, cell)
+		end
+		table.insert(rows, "   " .. labels[day + 1] .. "  " .. table.concat(cells, " "))
+	end
+	return rows
 end
 
 local function setup_lines(data)
@@ -40,7 +266,9 @@ local function setup_lines(data)
 	})[reason] or reason
 
 	return {
-		"Onigiri dashboard unavailable",
+		"╭──────────────────────────────────────────────╮",
+		"│  Onigiri dashboard unavailable              │",
+		"╰──────────────────────────────────────────────╯",
 		"",
 		"Reason: " .. reason_text,
 		"",
@@ -50,134 +278,155 @@ local function setup_lines(data)
 		"Expected file:",
 		"Anki2/addons21/1011095603/user_files/gamification_<profile>.json",
 		"",
-		"q close",
+		"[q] close",
 	}
 end
 
-local function append_optional_dashboard(lines, data)
-	local restaurant = data.restaurant or {}
-	if type(restaurant.owned_items) == "table" and #restaurant.owned_items > 0 then
-		table.insert(lines, "Owned items: " .. table.concat(restaurant.owned_items, ", "))
-	end
-
-	local flags = {}
-	for _, key in ipairs({ "enabled", "migrated", "notifications_enabled" }) do
-		if restaurant[key] ~= nil then
-			table.insert(flags, key .. "=" .. tostring(restaurant[key]))
-		end
-	end
-	if #flags > 0 then
-		table.insert(lines, "Enabled flags: " .. table.concat(flags, " | "))
-	end
-
-	local progress = {}
-	for _, key in ipairs({ "show_profile_bar_progress", "show_profile_page_progress" }) do
-		if restaurant[key] ~= nil then
-			table.insert(progress, key .. "=" .. tostring(restaurant[key]))
-		end
-	end
-	if #progress > 0 then
-		table.insert(lines, "Profile progress: " .. table.concat(progress, " | "))
-	end
-
-	if type(restaurant.daily_special) == "table" then
-		local daily = restaurant.daily_special
-		table.insert(lines, "Daily special details: " .. value(daily.name or daily.id or daily.description))
-	end
-
-	local first_achievement = data.achievements and data.achievements.items and data.achievements.items[1]
-	if first_achievement then
-		table.insert(lines, "Achievement details: " .. value(first_achievement.name or first_achievement.id))
-	end
-end
-
 local function dashboard_lines(context)
+	context = context or {}
 	local data = context.onigiri or onigiri.load()
 	if not data.ok then
 		return setup_lines(data)
 	end
 
+	local inner, prefix = layout_width(context.width, 72)
+	local hero_inner = math.max(24, math.min(58, inner - 2))
+	local bar_width = math.max(8, math.min(24, hero_inner - 24))
 	local restaurant = data.restaurant or {}
-	local achievements = data.achievements or {}
-	local daily_specials = data.daily_specials or {}
+
+	local top = prefix .. "╭" .. string.rep("─", inner) .. "╮"
+	local head = prefix .. header_line("  🍙 Onigiri Companion", "Lv. " .. value(restaurant.level) .. "  ● Live ", inner)
+	local bot = prefix .. "╰" .. string.rep("─", inner) .. "╯"
+
 	local lines = {
-		"Onigiri companion dashboard",
+		top,
+		head,
+		bot,
 		"",
-		"Onigiri status: connected",
-		"Restaurant level: " .. value(restaurant.level),
-		"Total XP: " .. value(restaurant.total_xp),
-		"Taiyaki coins: " .. value(restaurant.taiyaki_coins),
-		"Theme: " .. value(restaurant.current_theme_id),
-		string.format("Daily specials: %d/%d", daily_specials.completed or 0, daily_specials.total or 0),
-		string.format("Achievements: %d/%d", achievements.unlocked or 0, achievements.total or 0),
-		"Last updated: " .. value(data.last_updated),
-		"Source path: " .. value(data.path),
+		prefix .. "── Activity " .. string.rep("─", math.max(2, inner - 13)),
 	}
-	append_optional_dashboard(lines, data)
+
+	for _, line in ipairs(activity_heatmap(context.activity or data.activity, inner)) do
+		table.insert(lines, prefix .. line)
+	end
 	table.insert(lines, "")
-	table.insert(lines, "s stats    R refresh    q close")
+	table.insert(lines, prefix .. "   ↻ " .. short_time(data.last_updated) .. "  󰉋 " .. abbreviate_path(data.path, inner - 20))
+	table.insert(lines, "")
+	table.insert(lines, prefix .. "   [s] stats    [r] refresh    [q] close")
 	return lines
 end
 
 local function stats_lines(context)
+	context = context or {}
 	local data = context.onigiri or onigiri.load()
 	if not data.ok then
 		return setup_lines(data)
 	end
 
+	local inner, prefix = layout_width(context.width, 72)
+	local card_inner = math.max(24, inner - 4)
+	local bar_width = math.max(10, math.min(30, card_inner - 24))
 	local restaurant = data.restaurant or {}
 	local achievements = data.achievements or {}
 	local daily_specials = data.daily_specials or {}
+	local xp = tonumber(restaurant.total_xp) or 0
+
+	local top = prefix .. "╭" .. string.rep("─", inner) .. "╮"
+	local head = prefix .. header_line("  🍙 Onigiri · Stats", "● Live ", inner)
+	local bot = prefix .. "╰" .. string.rep("─", inner) .. "╯"
+	local function thin_top()
+		return prefix .. "  ┌" .. string.rep("─", card_inner) .. "┐"
+	end
+	local function thin_bot()
+		return prefix .. "  └" .. string.rep("─", card_inner) .. "┘"
+	end
+	local function thin_line(text)
+		return prefix .. "  │ " .. pad_right(text, card_inner - 2) .. " │"
+	end
+
 	local lines = {
-		"Onigiri detailed stats",
+		top,
+		head,
+		bot,
 		"",
-		"Restaurant level",
-		"level=" .. value(restaurant.level) .. " xp=" .. value(restaurant.total_xp) .. " coins=" .. value(restaurant.taiyaki_coins),
-		"theme=" .. value(restaurant.current_theme_id),
+		thin_top(),
+		thin_line("RESTAURANT  Lv. " .. value(restaurant.level) .. "                     " .. fmt_num(xp) .. " XP"),
+		thin_line(""),
+		thin_line("XP  " .. progress_bar(xp, xp, bar_width) .. "  " .. fmt_num(xp) .. " / " .. fmt_num(xp)),
+		thin_line(""),
+		thin_line("🪙 " .. value(restaurant.taiyaki_coins) .. " taiyaki                 theme: " .. value(restaurant.current_theme_id)),
+		thin_bot(),
 		"",
-		"Daily specials list",
+		prefix .. "  ── Daily Specials " .. string.rep("─", math.max(2, inner - 20)),
+		"",
 	}
 
 	for _, item in ipairs(daily_specials.items or {}) do
-		table.insert(
-			lines,
-			string.format(
-				"- %s completed=%s target=%s done=%s xp=%s",
-				value(item.name or item.id),
-				value(item.completed),
-				value(item.target_cards),
-				value(item.cards_completed),
-				value(item.xp_earned)
-			)
-		)
+		local target = tonumber(item.target_cards) or 0
+		local done = tonumber(item.cards_completed) or 0
+		table.insert(lines, thin_top())
+		table.insert(lines, thin_line("✦ " .. clip_text(value(item.name or item.id), math.max(10, card_inner - 8)) .. "   " .. (item.completed and "✔" or "·")))
+		table.insert(lines, thin_line(""))
+		table.insert(lines, thin_line("progress  " .. progress_bar(done, math.max(target, 1), math.max(8, math.min(30, card_inner - 20))) .. "  " .. done .. "/" .. target))
+		table.insert(lines, thin_line("target " .. target .. "    done " .. done .. "    +" .. value(item.xp_earned) .. " XP"))
+		table.insert(lines, thin_bot())
+		table.insert(lines, "")
 	end
 	if #(daily_specials.items or {}) == 0 then
-		table.insert(lines, "- none")
+		table.insert(lines, prefix .. "   No specials yet today. Keep studying to reveal one! 🎌")
 	end
 
 	table.insert(lines, "")
-	table.insert(lines, "Achievements list")
+	table.insert(lines, prefix .. "  ── Achievements " .. string.rep("─", math.max(2, inner - 19)))
+	table.insert(lines, "")
+	local unlocked = {}
 	for _, item in ipairs(achievements.items or {}) do
-		table.insert(lines, string.format("- %s unlocked=%s progress=%s/%s", value(item.name or item.id), value(item.unlocked), value(item.progress), value(item.threshold)))
+		if item.unlocked then
+			table.insert(unlocked, item)
+		end
 	end
-	if #(achievements.items or {}) == 0 then
-		table.insert(lines, "- none")
+	if #unlocked > 0 then
+		for _, item in ipairs(unlocked) do
+			table.insert(lines, prefix .. "   ✔ " .. clip_text(value(item.name or item.id) .. "  " .. value(item.description), inner - 3))
+		end
+	else
+		table.insert(lines, prefix .. "   No achievements unlocked yet.")
+		table.insert(lines, prefix .. "   Keep studying to earn your first! 🎌")
 	end
 
 	table.insert(lines, "")
-	table.insert(lines, "Source path: " .. value(data.path))
-	table.insert(lines, "read-only")
-	table.insert(lines, "Last updated: " .. value(data.last_updated))
+	table.insert(lines, prefix .. "  ── Source " .. string.rep("─", math.max(2, inner - 12)))
 	table.insert(lines, "")
-	table.insert(lines, "h dashboard    R refresh    q close")
+	for _, p in ipairs(wrap_text(value(data.path), math.max(12, inner - 5))) do
+		table.insert(lines, prefix .. "   " .. p)
+	end
+	table.insert(lines, prefix .. "   read-only · " .. short_time_full(data.last_updated))
+	table.insert(lines, "")
+	table.insert(lines, prefix .. "  " .. string.rep("─", math.max(2, inner - 2)))
+	table.insert(lines, "")
+	table.insert(lines, prefix .. "   [h] dashboard    [r] refresh    [q] close")
 	return lines
 end
 
 local function render_lines(state)
 	if state.view == "stats" then
-		return stats_lines({ onigiri = state.onigiri })
+		return stats_lines({ onigiri = state.onigiri, width = state.render_width })
 	end
-	return dashboard_lines({ onigiri = state.onigiri })
+	return dashboard_lines({ onigiri = state.onigiri, activity = state.activity, width = state.render_width })
+end
+
+local function load_activity(data)
+	if not data or not data.ok then
+		return nil
+	end
+	if data.activity and type(data.activity.items) == "table" and #data.activity.items > 0 then
+		return data.activity
+	end
+	local ok, activity = pcall(anki.review_activity_by_day)
+	if ok and activity and type(activity.items) == "table" and #activity.items > 0 then
+		return activity
+	end
+	return nil
 end
 
 local function add_highlights(state, lines)
@@ -186,9 +435,9 @@ local function add_highlights(state, lines)
 		local row = i - 1
 		if i == 1 then
 			vim.api.nvim_buf_add_highlight(state.buf, ns, "AnkiReviewDashboardTitle", row, 0, -1)
-		elseif line:match("^Onigiri") or line:match("^Restaurant level$") or line:match("^Daily specials list$") or line:match("^Achievements list$") then
+		elseif line:find("🍙", 1, true) or line:find("── ", 1, true) then
 			vim.api.nvim_buf_add_highlight(state.buf, ns, "AnkiReviewWidgetTitle", row, 0, -1)
-		elseif line:find("q close", 1, true) or line:find("R refresh", 1, true) then
+		elseif line:find("[q]", 1, true) or line:find("[r]", 1, true) then
 			vim.api.nvim_buf_add_highlight(state.buf, ns, "AnkiReviewHint", row, 0, -1)
 		end
 	end
@@ -199,6 +448,7 @@ local function render(state)
 		return
 	end
 	state.onigiri = onigiri.load()
+	state.activity = load_activity(state.onigiri)
 	local lines = render_lines(state)
 	vim.bo[state.buf].modifiable = true
 	vim.api.nvim_buf_set_lines(state.buf, 0, -1, false, lines)
@@ -225,6 +475,7 @@ function M.open(_, opts)
 	local dims = size()
 	local state = {
 		view = opts.view or "dashboard",
+		render_width = dims.width,
 		onigiri = onigiri.load(),
 		buf = vim.api.nvim_create_buf(false, true),
 		win = nil,
@@ -268,6 +519,9 @@ function M.open(_, opts)
 		render(state)
 	end, keymap_opts)
 	vim.keymap.set("n", "R", function()
+		refresh_status(state)
+	end, keymap_opts)
+	vim.keymap.set("n", "r", function()
 		refresh_status(state)
 	end, keymap_opts)
 	vim.keymap.set("n", "q", function()

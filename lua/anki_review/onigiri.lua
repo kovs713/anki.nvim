@@ -106,6 +106,44 @@ local function normalize_daily_special(item)
 	}
 end
 
+local function normalize_activity(value)
+	local items = {}
+	if type(value) ~= "table" then
+		return items
+	end
+
+	if is_list(value) then
+		for _, item in ipairs(value) do
+			if type(item) == "table" then
+				local date = string_or_nil(item.date) or string_or_nil(item.day)
+				local count = number_or_nil(item.count) or number_or_nil(item.cards) or number_or_nil(item.reviews) or number_or_nil(item.value)
+				if date and count then
+					table.insert(items, { date = date, count = count })
+				end
+			end
+		end
+		return items
+	end
+
+	for date, count in pairs(value) do
+		if type(date) == "string" then
+			local normalized = number_or_nil(count)
+			if normalized then
+				table.insert(items, { date = date, count = normalized })
+			elseif type(count) == "table" then
+				normalized = number_or_nil(count.count) or number_or_nil(count.cards) or number_or_nil(count.reviews) or number_or_nil(count.value)
+				if normalized then
+					table.insert(items, { date = date, count = normalized })
+				end
+			end
+		end
+	end
+	table.sort(items, function(a, b)
+		return a.date < b.date
+	end)
+	return items
+end
+
 local function normalize_items(value, normalize_item)
 	local items = {}
 	if not is_list(value) then
@@ -134,6 +172,7 @@ local function normalize(data, path)
 	local restaurant = normalize_restaurant(data.restaurant_level)
 	local achievements = normalize_items(data.achievements, normalize_achievement)
 	local daily_specials = normalize_items(data.daily_specials, normalize_daily_special)
+	local activity = normalize_activity(data.activity_heatmap or data.activity or data.review_activity or data.daily_activity or data.heatmap or data.calendar)
 	local unlocked = 0
 	for _, achievement in ipairs(achievements) do
 		if achievement.unlocked then
@@ -162,6 +201,9 @@ local function normalize(data, path)
 			total = #daily_specials,
 			completed = completed,
 			items = daily_specials,
+		},
+		activity = {
+			items = activity,
 		},
 	}
 end

@@ -136,6 +136,31 @@ function M.review_counts(deck_name)
 	}, nil
 end
 
+function M.review_activity_by_day()
+	local result, err = M.request("getNumCardsReviewedByDay")
+	if err then
+		return nil, err
+	end
+	if type(result) ~= "table" then
+		return nil, "invalid response shape"
+	end
+
+	local items = {}
+	for _, row in ipairs(result) do
+		if type(row) == "table" then
+			local date = row[1]
+			local count = tonumber(row[2])
+			if type(date) == "string" and count then
+				table.insert(items, { date = date, count = count })
+			end
+		end
+	end
+	table.sort(items, function(a, b)
+		return a.date < b.date
+	end)
+	return { items = items }, nil
+end
+
 function M.start_review(deck)
 	return M.request("guiDeckReview", { name = deck })
 end
