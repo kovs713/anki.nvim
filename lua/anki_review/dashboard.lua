@@ -1,6 +1,6 @@
 local anki = require("anki_review.anki")
 local config = require("anki_review.config")
-local gamification = require("anki_review.gamification")
+local onigiri = require("anki_review.onigiri")
 local persisted = require("anki_review.state")
 
 local M = {}
@@ -24,19 +24,6 @@ local function size()
 	}
 end
 
-local function format_time(seconds)
-	seconds = math.max(0, math.floor(tonumber(seconds) or 0))
-	local hours = math.floor(seconds / 3600)
-	local mins = math.floor((seconds % 3600) / 60)
-	if hours > 0 then
-		return string.format("%dh %dm", hours, mins)
-	end
-	if mins > 0 then
-		return string.format("%dm", mins)
-	end
-	return string.format("%ds", seconds)
-end
-
 local function display_width(text)
 	return vim.fn.strdisplaywidth(text or "")
 end
@@ -52,44 +39,6 @@ local function truncate(text, max_width)
 		clipped = vim.fn.strcharpart(clipped, 0, vim.fn.strchars(clipped) - 1)
 	end
 	return clipped .. "..."
-end
-
-local function bar(current, total, width)
-	width = math.max(1, width or 28)
-	if total <= 0 then
-		return string.rep("░", width)
-	end
-	local filled = clamp(math.floor((current / total) * width + 0.5), 0, width)
-	return string.rep("█", filled) .. string.rep("░", width - filled)
-end
-
-local function day_name(date)
-	local year, month, day = date:match("^(%d%d%d%d)%-(%d%d)%-(%d%d)$")
-	if not year then
-		return date
-	end
-	local time = os.time({
-		year = tonumber(year),
-		month = tonumber(month),
-		day = tonumber(day),
-		hour = 12,
-	})
-	if not time then
-		return date
-	end
-	return os.date("%a", time)
-end
-
-local function today_stats(game, today)
-	return game.daily[today] or {
-		cards = 0,
-		again = 0,
-		hard = 0,
-		good = 0,
-		easy = 0,
-		xp = 0,
-		review_seconds = 0,
-	}
 end
 
 local function fit_lines(lines, width)
@@ -119,7 +68,7 @@ local function due_summary(stats)
 		return "unavailable"
 	end
 	return string.format(
-		"New %d \xc2\xb7 Learn %d \xc2\xb7 Review %d \xc2\xb7 Total %d",
+		"New %d · Learn %d · Review %d · Total %d",
 		stats.new_count or 0,
 		stats.learn_count or 0,
 		stats.review_count or 0,
@@ -127,64 +76,115 @@ local function due_summary(stats)
 	)
 end
 
--- dashboard compact due (no Total)
 local function due_compact(stats)
 	if not stats then
 		return "unavailable"
 	end
-	return string.format(
-		"New %d \xc2\xb7 Learn %d \xc2\xb7 Review %d",
-		stats.new_count or 0,
-		stats.learn_count or 0,
-		stats.review_count or 0
-	)
+	return string.format("New %d · Learn %d · Review %d", stats.new_count or 0, stats.learn_count or 0, stats.review_count or 0)
 end
 
 local function future_summary(future)
 	if not future then
 		return "unavailable"
 	end
-	return string.format(
-		"Tomorrow %d \xc2\xb7 Future %d",
-		future.tomorrow or 0,
-		future.future or 0
-	)
+	return string.format("Tomorrow %d · Future %d", future.tomorrow or 0, future.future or 0)
 end
 
 local function reviews_summary(reviews)
 	if not reviews then
 		return "unavailable"
 	end
-	return string.format(
-		"Today %d \xc2\xb7 Week %d \xc2\xb7 Month %d",
-		reviews.today or 0,
-		reviews.week or 0,
-		reviews.month or 0
-	)
+	return string.format("Today %d · Week %d · Month %d", reviews.today or 0, reviews.week or 0, reviews.month or 0)
 end
 
--- Dashboard view: compact overview
+local function value(raw)
+	if raw == nil then
+		return "unknown"
+	end
+	return tostring(raw)
+end
+
+local function append_onigiri_dashboard(lines, data, provider)
+	table.insert(lines, "Onigiri")
+	if provider == "none" then
+		table.insert(lines, "Status: disabled")
+		table.insert(lines, "Gamification disabled")
+		return
+	end
+
+	data = data or onigiri.load()
+	table.insert(lines, "Status: " .. onigiri.status_label(data))
+	if not data.ok then
+		if data.error == "path not configured" then
+			table.insert(lines, "Onigiri: path not configured")
+		end
+		table.insert(lines, "Onigiri gamification data unavailable")
+		return
+	end
+
+	local restaurant = data.restaurant or {}
+	local achievements = data.achievements or {}
+	local daily_specials = data.daily_specials or {}
+	table.insert(lines, "Level: " .. value(restaurant.level))
+	table.insert(lines, "XP: " .. value(restaurant.total_xp))
+	table.insert(lines, "Coins: " .. value(restaurant.taiyaki_coins))
+	table.insert(lines, "Theme: " .. value(restaurant.current_theme_id))
+	table.insert(lines, string.format("Achievements: %d/%d", achievements.unlocked or 0, achievements.total or 0))
+	table.insert(lines, string.format("Daily specials: %d/%d", daily_specials.completed or 0, daily_specials.total or 0))
+	table.insert(lines, "Last updated: " .. value(data.last_updated))
+end
+
+local function append_onigiri_stats(lines, data, provider)
+	table.insert(lines, "Onigiri gamification")
+	if provider == "none" then
+		table.insert(lines, "Status: disabled")
+		table.insert(lines, "")
+		return
+	end
+
+	data = data or onigiri.load()
+	if not data.ok then
+		table.insert(lines, "Status: " .. onigiri.status_label(data))
+		table.insert(lines, "Onigiri gamification data unavailable")
+		table.insert(lines, "")
+		table.insert(lines, "Source")
+		table.insert(lines, data.path or "not configured")
+		table.insert(lines, "read-only")
+		table.insert(lines, "")
+		return
+	end
+
+	local restaurant = data.restaurant or {}
+	local achievements = data.achievements or {}
+	local daily_specials = data.daily_specials or {}
+	table.insert(lines, "")
+	table.insert(lines, "Level: " .. value(restaurant.level))
+	table.insert(lines, "Total XP: " .. value(restaurant.total_xp))
+	table.insert(lines, "Taiyaki coins: " .. value(restaurant.taiyaki_coins))
+	table.insert(lines, "Theme: " .. value(restaurant.current_theme_id))
+	table.insert(lines, "Last updated: " .. value(data.last_updated))
+	table.insert(lines, "")
+	table.insert(lines, "Achievements")
+	table.insert(lines, string.format("Unlocked: %d / %d", achievements.unlocked or 0, achievements.total or 0))
+	table.insert(lines, "")
+	table.insert(lines, "Daily specials")
+	table.insert(lines, string.format("Completed: %d / %d", daily_specials.completed or 0, daily_specials.total or 0))
+	table.insert(lines, "")
+	table.insert(lines, "Source")
+	table.insert(lines, data.path or "not configured")
+	table.insert(lines, "read-only")
+	table.insert(lines, "")
+end
+
 local function dashboard_lines(context)
 	context = context or {}
 	local opts = config.get()
-	local game_enabled = (opts.gamification or {}).enabled ~= false
-	local game = gamification._normalize_state(context.gamification or gamification.load())
-	local today = context.today or os.date("%Y-%m-%d")
-	local today_data = today_stats(game, today)
-	local progress = gamification.level_progress(game.xp)
+	local provider = ((opts.gamification or {}).provider or "onigiri")
 	local last_deck = context.last_deck
 	local status = context.anki_status or { state = "unknown" }
 	local stats = context.deck_stats
 	local future = context.future_due
 	local reviews = context.review_counts
-	local activity_days = math.max(1, tonumber((opts.dashboard or {}).activity_days) or 7)
-	local activity = gamification.activity_strip(game, activity_days, today)
-	local day_labels = {}
-	local symbols = {}
-	for _, day in ipairs(activity) do
-		table.insert(day_labels, day_name(day.date))
-		table.insert(symbols, day.symbol)
-	end
 
 	local lines = {
 		"Flashcards without leaving the cave",
@@ -192,33 +192,7 @@ local function dashboard_lines(context)
 		"",
 	}
 
-	table.insert(lines, "Local progress")
-	if game_enabled then
-		table.insert(
-			lines,
-			string.format(
-				"Level %d        XP %d / %d",
-				progress.current_level,
-				progress.xp_into_level,
-				progress.xp_needed_for_next_level
-			)
-		)
-		table.insert(lines, bar(progress.xp_into_level, progress.xp_needed_for_next_level, 28))
-		table.insert(
-			lines,
-			string.format(
-				"Streak %d       Today %d cards \xc2\xb7 %d XP",
-				game.streak.current or 0,
-				today_data.cards or 0,
-				today_data.xp or 0
-			)
-		)
-		table.insert(lines, "  " .. table.concat(day_labels, " "))
-		table.insert(lines, "Activity " .. table.concat(symbols, " "))
-	else
-		table.insert(lines, "Gamification disabled")
-		table.insert(lines, "Local XP, streaks, and activity tracking are off.")
-	end
+	append_onigiri_dashboard(lines, context.onigiri, provider)
 
 	table.insert(lines, "")
 	table.insert(lines, "Anki collection")
@@ -234,12 +208,9 @@ local function dashboard_lines(context)
 	return fit_lines(lines, context.width or 78)
 end
 
--- Stats view: detailed
 local function stats_lines(context)
 	context = context or {}
-	local game = gamification._normalize_state(context.gamification or gamification.load())
-	local today = context.today or os.date("%Y-%m-%d")
-	local days = gamification.last_days(7, today)
+	local provider = ((config.get().gamification or {}).provider or "onigiri")
 	local status = context.anki_status or { state = "unknown" }
 	local stats = context.deck_stats
 	local future = context.future_due
@@ -248,42 +219,9 @@ local function stats_lines(context)
 	local lines = {
 		"Session / Progress Stats",
 		"",
-		"Local progress",
-		string.format(
-			"XP: %d        Level: %d",
-			game.xp or 0,
-			game.level or gamification.level_for_xp(game.xp or 0)
-		),
-		string.format(
-			"Streak: %d    Best: %d",
-			(game.streak and game.streak.current) or 0,
-			(game.streak and game.streak.best) or 0
-		),
-		string.format(
-			"Cards: %d     Time: %s",
-			game.totals.cards_answered or 0,
-			format_time((game.totals and game.totals.review_seconds) or 0)
-		),
-		"",
-		"Answer breakdown",
-		string.format(
-			"Again %d   Hard %d   Good %d   Easy %d",
-			game.totals.again or 0,
-			game.totals.hard or 0,
-			game.totals.good or 0,
-			game.totals.easy or 0
-		),
-		"",
-		"Local activity  (* anki.nvim reviews only)",
 	}
 
-	for _, date in ipairs(days) do
-		local day = game.daily[date] or {}
-		local sym = gamification.activity_symbol(day.cards or 0)
-		table.insert(lines, string.format("%s  %s  %d cards   %d XP", date, sym, day.cards or 0, day.xp or 0))
-	end
-
-	table.insert(lines, "")
+	append_onigiri_stats(lines, context.onigiri, provider)
 	table.insert(lines, "Anki collection")
 	table.insert(lines, "Status: " .. status_label(status))
 	table.insert(lines, "Last deck: " .. last_deck)
@@ -297,7 +235,7 @@ end
 
 local function render_lines(state)
 	local context = {
-		gamification = state.gamification,
+		onigiri = state.onigiri,
 		show_help = state.show_help,
 		anki_status = state.anki_status,
 		deck_stats = state.deck_stats,
@@ -321,16 +259,16 @@ local function add_highlights(state, lines)
 		elseif line:find("Flashcards without leaving the cave", 1, true) then
 			vim.api.nvim_buf_add_highlight(state.buf, ns, "AnkiReviewDashboardSubtitle", row, 0, -1)
 		elseif
-			line:match("^Local progress$")
+			line:match("^Onigiri$")
+			or line:match("^Onigiri gamification$")
 			or line:match("^Anki collection$")
-			or line:match("^Answer breakdown$")
-			or line:match("^Local activity")
+			or line:match("^Achievements$")
+			or line:match("^Daily specials$")
+			or line:match("^Source$")
 		then
 			vim.api.nvim_buf_add_highlight(state.buf, ns, "AnkiReviewWidgetTitle", row, 0, -1)
-		elseif line:find("Level", 1, true) or line:find("Streak", 1, true) or line:find("XP:", 1, true) then
+		elseif line:find("Level", 1, true) or line:find("XP", 1, true) or line:find("Coins", 1, true) then
 			vim.api.nvim_buf_add_highlight(state.buf, ns, "AnkiReviewWidgetValue", row, 0, -1)
-		elseif line:find("█", 1, true) or line:find("░", 1, true) then
-			vim.api.nvim_buf_add_highlight(state.buf, ns, "AnkiReviewXPBar", row, 0, -1)
 		elseif line:find(" q ", 1, true) or line:find("q close", 1, true) then
 			vim.api.nvim_buf_add_highlight(state.buf, ns, "AnkiReviewHint", row, 0, -1)
 		end
@@ -341,7 +279,7 @@ local function render(state)
 	if not state.buf or not vim.api.nvim_buf_is_valid(state.buf) then
 		return
 	end
-	state.gamification = gamification.load()
+	state.onigiri = onigiri.load()
 	if state.last_deck == nil then
 		state.last_deck = persisted.last_deck()
 	end
@@ -404,9 +342,9 @@ local function refresh_status(state)
 	}
 
 	if state.last_deck then
-		local stats_ok, stats, stats_err = pcall(anki.deck_stats, state.last_deck)
-		if stats_ok and not stats_err and stats then
-			state.deck_stats = stats
+		local stats_ok, deck_stats, stats_err = pcall(anki.deck_stats, state.last_deck)
+		if stats_ok and not stats_err and deck_stats then
+			state.deck_stats = deck_stats
 		else
 			state.deck_stats = nil
 		end
@@ -418,9 +356,9 @@ local function refresh_status(state)
 			state.future_due = nil
 		end
 
-		local rev_ok, rev, rev_err = pcall(anki.review_counts, state.last_deck)
-		if rev_ok and not rev_err and rev then
-			state.review_counts = rev
+		local review_ok, reviews, review_err = pcall(anki.review_counts, state.last_deck)
+		if review_ok and not review_err and reviews then
+			state.review_counts = reviews
 		else
 			state.review_counts = nil
 		end
@@ -435,7 +373,7 @@ function M.open(actions, opts)
 	require("anki_review.ui").setup_highlights()
 
 	local dims = size()
-		local state = {
+	local state = {
 		view = opts.view or "dashboard",
 		show_help = false,
 		anki_status = { state = "unknown", version = nil, error = nil, queried_at = nil },
@@ -444,7 +382,7 @@ function M.open(actions, opts)
 		review_counts = nil,
 		reset_view = true,
 		render_width = dims.width,
-		gamification = gamification.load(),
+		onigiri = onigiri.load(),
 		last_deck = persisted.last_deck(),
 		buf = vim.api.nvim_create_buf(false, true),
 		win = nil,

@@ -1,5 +1,4 @@
 local anki = require("anki_review.anki")
-local gamification = require("anki_review.gamification")
 local ui = require("anki_review.ui")
 
 local M = {}
@@ -23,10 +22,6 @@ local state = {
 	closed = false,
 	error = nil,
 	complete = false,
-	session_recorded = false,
-	gamification_feedback = nil,
-	gamification_feedback_until = nil,
-	gamification_streak = nil,
 }
 
 local function stop_timer()
@@ -83,21 +78,10 @@ function M.close()
 end
 
 local function mark_complete()
-	if state.stats and (state.stats.answered or 0) > 0 and not state.session_recorded then
-		gamification.record_session()
-		state.session_recorded = true
-	end
 	state.complete = true
 	state.error = nil
 	state.current_card = nil
 	render()
-end
-
-local function card_id(card)
-	if not card then
-		return nil
-	end
-	return card.cardId or card.card_id or card.id
 end
 
 function M.load_current_card()
@@ -152,27 +136,11 @@ function M.answer(ease)
 		return
 	end
 
-	local answered_card_id = card_id(state.current_card)
-	local elapsed = os.time() - (state.started_at or os.time())
 	local _, err = anki.answer_card(ease)
 	if err then
 		state.error = err
 		render()
 		return
-	end
-
-	local progress = gamification.record_answer({
-		deck = state.deck,
-		card_id = answered_card_id,
-		ease = ease,
-		elapsed = elapsed,
-		timestamp = os.time(),
-	})
-	if progress.recorded then
-		state.stats.xp = (state.stats.xp or 0) + (progress.xp or 0)
-		state.gamification_streak = progress.streak
-		state.gamification_feedback = string.format("+%d XP · streak %d", progress.xp or 0, progress.streak or 0)
-		state.gamification_feedback_until = os.time() + 4
 	end
 
 	state.showing_answer = false
@@ -221,7 +189,6 @@ function M.start(deck)
 		progress = nil,
 		stats = {
 			answered = 0,
-			xp = 0,
 			ease = { [1] = 0, [2] = 0, [3] = 0, [4] = 0 },
 		},
 		show_help = false,
@@ -231,12 +198,7 @@ function M.start(deck)
 		closed = false,
 		error = nil,
 		complete = false,
-		session_recorded = false,
-		gamification_feedback = nil,
-		gamification_feedback_until = nil,
-		gamification_streak = nil,
 	}
-	gamification.reset_duplicate_guard()
 
 	local opened = ui.open(state, {
 		show_answer = M.show_answer,

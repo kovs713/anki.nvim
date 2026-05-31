@@ -1,5 +1,6 @@
 local text = require("anki_review.text")
 local config = require("anki_review.config")
+local onigiri = require("anki_review.onigiri")
 
 local M = {}
 local ns = vim.api.nvim_create_namespace("anki_review")
@@ -70,7 +71,6 @@ end
 local function stats_lines(state)
 	local stats = state.stats or { answered = 0, ease = {} }
 	local total = os.time() - (state.session_started_at or os.time())
-	local gamification_enabled = (config.get().gamification or {}).enabled ~= false
 	local lines = {
 		"Session",
 		string.format("Answered: %d    Time: %s", stats.answered or 0, format_time(total)),
@@ -82,13 +82,24 @@ local function stats_lines(state)
 			(stats.ease and stats.ease[4]) or 0
 		),
 	}
-	if gamification_enabled then
-		table.insert(lines, 3, string.format("XP gained: +%d", stats.xp or 0))
-	else
+	if ((config.get().gamification or {}).provider or "onigiri") == "none" then
 		table.insert(lines, "Gamification disabled")
-	end
-	if gamification_enabled and state.gamification_streak then
-		table.insert(lines, string.format("Streak: %d days", state.gamification_streak))
+	else
+		local data = onigiri.load()
+		if data.ok then
+			local restaurant = data.restaurant or {}
+			table.insert(
+				lines,
+				string.format(
+					"Onigiri: Level %s    XP %s    Coins %s",
+					tostring(restaurant.level or "unknown"),
+					tostring(restaurant.total_xp or "unknown"),
+					tostring(restaurant.taiyaki_coins or "unknown")
+				)
+			)
+		else
+			table.insert(lines, "Onigiri data unavailable")
+		end
 	end
 	return lines
 end
@@ -134,15 +145,6 @@ local function setup_highlights()
 	vim.api.nvim_set_hl(0, "AnkiReviewDashboardBorder", { link = "FloatBorder", default = true })
 	vim.api.nvim_set_hl(0, "AnkiReviewWidgetTitle", { link = "Statement", default = true })
 	vim.api.nvim_set_hl(0, "AnkiReviewWidgetValue", { link = "Identifier", default = true })
-	vim.api.nvim_set_hl(0, "AnkiReviewXPBar", { link = "String", default = true })
-	vim.api.nvim_set_hl(0, "AnkiReviewXPBarEmpty", { link = "Comment", default = true })
-	vim.api.nvim_set_hl(0, "AnkiReviewStreak", { link = "Special", default = true })
-	vim.api.nvim_set_hl(0, "AnkiReviewActivityEmpty", { link = "Comment", default = true })
-	vim.api.nvim_set_hl(0, "AnkiReviewActivityLow", { link = "Identifier", default = true })
-	vim.api.nvim_set_hl(0, "AnkiReviewActivityMedium", { link = "String", default = true })
-	vim.api.nvim_set_hl(0, "AnkiReviewActivityHigh", { link = "Type", default = true })
-	vim.api.nvim_set_hl(0, "AnkiReviewActivityMax", { link = "Title", default = true })
-	vim.api.nvim_set_hl(0, "AnkiReviewGamificationPopup", { link = "Special", default = true })
 end
 
 local function add_highlights(state, lines)
@@ -160,12 +162,10 @@ local function add_highlights(state, lines)
 			line:match("^Due:")
 			or line:match("^Answered:")
 			or line:match("^Again:")
-			or line:match("^XP gained:")
+			or line:match("^Onigiri")
 			or line:match("^Gamification disabled")
 		then
 			vim.api.nvim_buf_add_highlight(state.buf, ns, "AnkiReviewProgress", row, 0, -1)
-		elseif line:match("^%+") then
-			vim.api.nvim_buf_add_highlight(state.buf, ns, "AnkiReviewGamificationPopup", row, 0, -1)
 		elseif line:match("Reveal answer") or line:match("Keys:") or line:match("Aliases:") or line:match("Nav:") then
 			vim.api.nvim_buf_add_highlight(state.buf, ns, "AnkiReviewHint", row, 0, -1)
 		end
@@ -396,12 +396,6 @@ function M.render(state)
 			table.insert(lines, progress)
 		end
 		table.insert(lines, "State: " .. (state.showing_answer and "Answer" or "Question"))
-		if state.gamification_feedback and (not state.gamification_feedback_until or os.time() <= state.gamification_feedback_until) then
-			table.insert(lines, state.gamification_feedback)
-		else
-			state.gamification_feedback = nil
-			state.gamification_feedback_until = nil
-		end
 		table.insert(lines, "")
 		mark_section("question")
 		table.insert(lines, "QUESTION")
