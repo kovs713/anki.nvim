@@ -96,7 +96,7 @@ require("anki_review").setup({
 })
 ```
 
-Disable gamification display:
+disable gamification display:
 
 ```lua
 require("anki_review").setup({
@@ -106,7 +106,7 @@ require("anki_review").setup({
 })
 ```
 
-Set Onigiri path in config:
+set Onigiri path in config:
 
 ```lua
 require("anki_review").setup({
@@ -116,7 +116,7 @@ require("anki_review").setup({
 })
 ```
 
-Or save only the path from Neovim:
+or save only the path from Neovim:
 
 ```vim
 :AnkiReviewOnigiriPath /path/to/gamification_User 1.json
@@ -174,7 +174,7 @@ starts the last saved deck.
 :AnkiReview deck <anki deck name>
 ```
 
-single-command aliases. Use `deck` when a deck name collides with a built-in alias.
+single-command aliases. use `deck` when a deck name collides with a built-in alias.
 
 ```vim
 :AnkiReviewHome
@@ -195,12 +195,12 @@ opens the dashboard directly in stats view.
 
 `:AnkiReviewHome` is an Onigiri companion dashboard.
 
-- Dashboard and `:AnkiReviewStats` render Onigiri JSON fields only.
-- No local anki.nvim XP/streak/gamification storage.
-- No Anki collection stats mixed into main dashboard/stats views.
-- If Onigiri is not installed/configured/valid, dashboard is unavailable and shows setup guidance.
+- dashboard and `:AnkiReviewStats` render Onigiri JSON fields only.
+- no local anki.nvim XP/streak/gamification storage.
+- no Anki collection stats mixed into main dashboard/stats views.
+- if Onigiri is not installed/configured/valid, dashboard is unavailable and shows setup guidance.
 
-Dashboard keys:
+dashboard keys:
 
 | key | action |
 |---|---|
@@ -213,26 +213,26 @@ Dashboard keys:
 
 ## gamification
 
-Dashboard is Onigiri-only.
+dashboard is Onigiri-only.
 
 `anki.nvim` does not implement its own gamification and does not invent XP, levels, streaks, achievements, or restaurant stats.
 
-It can display existing Onigiri Anki add-on gamification data in read-only mode. Onigiri remains the source of truth.
+it can display existing Onigiri Anki add-on gamification data in read-only mode. Onigiri remains the source of truth.
 
-Configure the Onigiri JSON path. Current Onigiri profile files are usually under the add-on `user_files` directory:
+configure the Onigiri JSON path. Current Onigiri profile files are usually under the add-on `user_files` directory:
 
 ```text
 user_files/gamification_<profile_name>.json
 user_files/gamification.json
 ```
 
-Profile names can contain spaces, for example `gamification_User 1.json`.
+profile names can contain spaces, for example `gamification_User 1.json`.
 
-`anki.nvim` only reads this file in read-only mode. It does not copy, modify, normalize, repair, or write Onigiri data. Onigiri remains source of truth.
+`anki.nvim` only reads this file in read-only mode. it does not copy, modify, normalize, repair, or write Onigiri data. Onigiri remains source of truth.
 
 Anki collection stats are separate from Onigiri dashboard and are not shown in `:AnkiReviewHome` or `:AnkiReviewStats`.
 
-Answering cards through `anki.nvim` sends normal AnkiConnect review actions. It does not create local XP/streak state and does not claim XP gained.
+Answering cards through `anki.nvim` sends normal AnkiConnect review actions. it does not create local XP/streak state and does not claim XP gained.
 
 ---
 
@@ -276,15 +276,15 @@ Completion keys:
 
 ## external add-ons
 
-`anki.nvim` answers cards through AnkiConnect, so reviews are still recorded by Anki itself. Stats/history add-ons may see those normal Anki reviews.
+`anki.nvim` answers cards through AnkiConnect, so reviews are still recorded by Anki itself. stats/history add-ons may see those normal Anki reviews.
 
-Anki, Onigiri, Review Heatmap, or other tools may show data that `anki.nvim` only reads or does not render.
+Anki, Onigiri, review heatmap, or other tools may show data that `anki.nvim` only reads or does not render.
 
-Visual add-ons that modify Anki's reviewer UI, card webview, buttons, colors, or keyboard shortcuts are not rendered inside the Neovim floating window.
+visual add-ons that modify Anki's reviewer UI, card webview, buttons, colors, or keyboard shortcuts are not rendered inside the Neovim floating window.
 
-`anki.nvim` can display Onigiri gamification data from a configured JSON path. It does not auto-discover, import, copy, or migrate Onigiri data into local plugin state.
+`anki.nvim` can display Onigiri gamification data from a configured JSON path. it does not auto-discover, import, copy, or migrate Onigiri data into local plugin state.
 
-No gamification data is written to Anki add-on directories, the Anki collection/database, or the Anki media folder.
+no gamification data is written to Anki add-on directories, the Anki collection/database, or the Anki media folder.
 
 ---
 
