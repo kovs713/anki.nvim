@@ -3,6 +3,8 @@ local persisted = require("anki_review.state")
 
 local M = {}
 
+local addon_pattern = "**/addons21/1011095603/user_files/gamification*.json"
+
 local function is_list(value)
 	if type(value) ~= "table" then
 		return false
@@ -179,6 +181,15 @@ function M.configured_path()
 end
 
 function M.load(path)
+	local provider = ((config.get().gamification or {}).provider or "onigiri")
+	if provider == "none" then
+		return {
+			ok = false,
+			source = "onigiri",
+			error = "disabled",
+		}
+	end
+
 	path = path or M.configured_path()
 	if type(path) ~= "string" or path == "" then
 		return {
@@ -240,6 +251,49 @@ end
 
 function M._normalize(data, path)
 	return normalize(data, path)
+end
+
+local function add_unique(output, seen, path)
+	if type(path) ~= "string" or path == "" then
+		return
+	end
+	local expanded = vim.fn.expand(path)
+	if seen[expanded] then
+		return
+	end
+	if vim.fn.filereadable(expanded) == 1 then
+		seen[expanded] = true
+		table.insert(output, expanded)
+	end
+end
+
+function M.default_base_paths()
+	local paths = {
+		"~/.local/share/Anki2",
+		"~/.var/app/net.ankiweb.Anki/data/Anki2",
+		"~/Library/Application Support/Anki2",
+	}
+	local appdata = vim.env.APPDATA
+	if type(appdata) == "string" and appdata ~= "" then
+		table.insert(paths, appdata .. "/Anki2")
+	end
+	return paths
+end
+
+function M.find_candidates(base_paths)
+	local candidates = {}
+	local seen = {}
+	for _, base in ipairs(base_paths or M.default_base_paths()) do
+		local expanded = vim.fn.expand(base)
+		if vim.fn.isdirectory(expanded) == 1 then
+			local matches = vim.fn.globpath(expanded, addon_pattern, false, true)
+			for _, match in ipairs(matches or {}) do
+				add_unique(candidates, seen, match)
+			end
+		end
+	end
+	table.sort(candidates)
+	return candidates
 end
 
 return M

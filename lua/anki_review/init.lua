@@ -91,6 +91,26 @@ function M.set_onigiri_path(path)
 	return false
 end
 
+function M.find_onigiri()
+	local onigiri = require("anki_review.onigiri")
+	local matches = onigiri.find_candidates()
+	if #matches == 0 then
+		vim.notify("AnkiReview: no Onigiri gamification JSON found", vim.log.levels.WARN)
+		vim.notify("Use :AnkiReviewOnigiriPath /path/to/gamification_PROFILE.json", vim.log.levels.INFO)
+		return matches
+	end
+
+	local lines = {
+		"AnkiReview: found Onigiri candidates:",
+	}
+	for _, match in ipairs(matches) do
+		table.insert(lines, "- " .. match)
+	end
+	table.insert(lines, "Set one with :AnkiReviewOnigiriPath <path>")
+	vim.notify(table.concat(lines, "\n"), vim.log.levels.INFO)
+	return matches
+end
+
 function M._parse_command(args, bang)
 	args = trim(args)
 	if bang then
